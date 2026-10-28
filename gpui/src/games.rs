@@ -112,7 +112,7 @@ pub fn prefetch_art(games: &[Game]) {
             continue;
         }
         let tmp = dir.join(format!("{}.part", game.id));
-        let status = crate::proc::quiet(
+        let status = openmouse_hid::proc::quiet(
             std::process::Command::new("curl")
                 .args(["-sSfL", "-m", "20", "-o"])
                 .arg(&tmp)

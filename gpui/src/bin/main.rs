@@ -8,8 +8,8 @@ use openmouse_gpui::app::AppView;
 fn main() {
     // Headless mode for the installer: list the plugged-in supported devices
     // and exit before any window or background work starts.
-    if let Some(path) = openmouse_gpui::supported_devices::requested_path() {
-        openmouse_gpui::supported_devices::write(&path);
+    if let Some(path) = openmouse_mouse::supported_devices::requested_path() {
+        openmouse_mouse::supported_devices::write(&path);
         return;
     }
     application().with_assets(assets::AllAssets).run(|cx| {
@@ -45,10 +45,14 @@ fn main() {
             cx.new(|cx| AppView::build(stored.theme, wallpaper, window, cx))
         })
         .expect("failed to open main window");
-        // Development aid: `OPENMOUSE_START_PAGE=updates|games|settings|supported`
+        // Development aid: `OPENMOUSE_START_PAGE=games|settings|supported|keyboard`
         // opens straight on that page (handy for profiling and screenshots).
-        if let Some(page) = std::env::var("OPENMOUSE_START_PAGE").ok().and_then(|name| match name.as_str() {
-            "updates" | "whatsnew" => Some(openmouse_gpui::app::Page::Updates),
+        // `keyboard` additionally reads `OPENMOUSE_KB_TAB` to pick a tab.
+        let start_page = std::env::var("OPENMOUSE_START_PAGE").ok();
+        if start_page.as_deref() == Some("keyboard") {
+            let tab = std::env::var("OPENMOUSE_KB_TAB").ok();
+            view.update(cx, |view, cx| view.show_keyboard_at(tab.as_deref(), cx));
+        } else if let Some(page) = start_page.as_deref().and_then(|name| match name {
             "games" => Some(openmouse_gpui::app::Page::Games),
             "settings" => Some(openmouse_gpui::app::Page::Settings),
             "supported" => Some(openmouse_gpui::app::Page::Supported),
@@ -103,9 +107,6 @@ fn main() {
         // change (mirrors `startDynamicAccentWatcher`). Focus-triggered
         // checks ride on the same path via GPUI's window focus events.
         openmouse_gpui::theme::spawn_wallpaper_watcher(cx, &view, &handle);
-        // Startup + 6-hour background check for a newer release (check +
-        // notify only — no download/install yet).
-        openmouse_gpui::update_check::spawn_update_watcher(cx, &view);
         // Game art prefetch: download missing covers on the background
         // executor (curl, 20s/file cap), then notify so cards repaint from
         // letter tiles to art. Non-fatal.

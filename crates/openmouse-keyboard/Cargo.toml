@@ -1,0 +1,12 @@
+[package]
+name = "openmouse-keyboard"
+version = "0.0.1"
+description = "Keyboard support: Weikav NUT75 (Sonix) HID protocol, keymap and lighting model"
+edition = "2021"
+
+[dependencies]
+hidapi = "2.6.6"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

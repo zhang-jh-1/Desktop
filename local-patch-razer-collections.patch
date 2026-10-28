@@ -1,0 +1,20 @@
+--- hid.js.orig	2026-10-28 14:40:41.755470800 +0800
++++ hid.js	2026-10-28 14:40:45.530738800 +0800
+@@ -36,8 +36,15 @@
+  * function or is a protected collection the browser will not talk to.
+  */
+ function isMouseControlInterface(device) {
+-    const [collection, ...rest] = device.collections;
+-    return rest.length === 0 && collection?.usagePage === 0x01 && collection?.usage === 0x02;
++    // LOCAL PATCH (openmouse-desktop native transport): the native HID layer
++    // groups every split of one (vendorId, productId) into a single interface
++    // and merges all of their collections into one array, so the "exactly one
++    // collection" shape a browser sees per WebHID device never occurs on a
++    // composite receiver. Accept a Generic Desktop Mouse collection anywhere in
++    // the group instead; hid_open still routes to it via preferredCollection
++    // (0x01/0x02, taken from RAZER_VIPER_V2_CONTROL_FILTERS).
++    const collections = device.collections ?? [];
++    return collections.some((collection) => collection?.usagePage === 0x01 && collection?.usage === 0x02);
+ }
+ /**
+  * Older Razer mice carry the configuration channel on a vendor-defined

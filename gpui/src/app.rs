@@ -10,10 +10,12 @@ use gpui_kit::component::Icon;
 use gpui_kit::component::slider::Slider;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::tag::Tag;
-use gpui_kit::component::{h_flex, ActiveTheme as _, Collapsible as _, Disableable as _, Sizable as _, TitleBar};
+use gpui_kit::component::{h_flex, ActiveTheme as _, Sizable as _, TitleBar};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::time::Duration;
+mod keyboard;
+
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Background art: a static ASCII density ramp painted behind the shell.
@@ -150,9 +152,9 @@ fn release_stage(version: &str) -> &'static str {
         .parse::<u64>()
         .unwrap_or(0);
     if major == 0 {
-        "Beta"
+        "测试版"
     } else {
-        "Public"
+        "正式版"
     }
 }
 
@@ -164,18 +166,15 @@ pub enum Page {
     Games,
     Supported,
     Settings,
-    /// Version and release notes; opened from the sidebar footer, not the nav list.
-    Updates,
 }
 
 impl Page {
     pub fn label(self) -> &'static str {
         match self {
-            Page::Overview => "Overview",
-            Page::Games => "Games",
-            Page::Supported => "Supported mice",
-            Page::Settings => "Settings",
-            Page::Updates => "Updates",
+            Page::Overview => "总览",
+            Page::Games => "游戏",
+            Page::Supported => "支持的鼠标",
+            Page::Settings => "设置",
         }
     }
 
@@ -185,7 +184,6 @@ impl Page {
             Page::Games => IconName::Gamepad2,
             Page::Supported => IconName::BookOpen,
             Page::Settings => IconName::Settings,
-            Page::Updates => IconName::CircleArrowUp,
         }
     }
 }
@@ -213,33 +211,6 @@ const GRID_GAP: f32 = 16.0;
 const PAGE_PAD: f32 = 16.0;
 const SIDEBAR_W: f32 = 264.0;
 const SIDEBAR_COLLAPSED_W: f32 = 72.0;
-
-/// The community server, the same invite openmouse.app links to.
-const DISCORD_INVITE_URL: &str = "https://discord.gg/yxC9jzMdw6";
-
-/// The Discord glyph (drawn in the theme colour by `themed_discord`), embedded so
-/// there is no file to ship or find at runtime.
-static DISCORD_SVG: &str = include_str!("../assets/discord.svg");
-
-
-/// Rows above the releases on the Updates page: heading, version card, notes title.
-const UPDATES_LEADING_ROWS: usize = 3;
-
-/// The Discord glyph drawn in `color`, so it follows the theme like the other
-/// sidebar icons instead of being a fixed brand blue. One image per colour.
-fn themed_discord(color: Hsla) -> std::sync::Arc<Image> {
-    static CACHE: std::sync::Mutex<Vec<(u32, std::sync::Arc<Image>)>> = std::sync::Mutex::new(Vec::new());
-    let rgba: Rgba = color.into();
-    let hex = ((rgba.r * 255.0).round() as u32) << 16 | ((rgba.g * 255.0).round() as u32) << 8 | (rgba.b * 255.0).round() as u32;
-    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, image)) = cache.iter().find(|(h, _)| *h == hex) {
-        return image.clone();
-    }
-    let svg = DISCORD_SVG.replace("#5865F2", &format!("#{hex:06X}"));
-    let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()));
-    cache.push((hex, image.clone()));
-    image
-}
 
 /// The selected device's detail card (battery bar, DPI, polling rate,
 /// firmware) under the grid. Hidden until per-device menus exist to hold it.
@@ -312,11 +283,11 @@ enum DeviceTab {
 impl DeviceTab {
     fn label(self) -> &'static str {
         match self {
-            DeviceTab::Performance => "Performance",
-            DeviceTab::Buttons => "Buttons",
-            DeviceTab::Lighting => "Lighting",
-            DeviceTab::Advanced => "Advanced",
-            DeviceTab::Profiles => "Profiles",
+            DeviceTab::Performance => "性能",
+            DeviceTab::Buttons => "按键",
+            DeviceTab::Lighting => "灯效",
+            DeviceTab::Advanced => "高级",
+            DeviceTab::Profiles => "配置",
         }
     }
 }
@@ -325,6 +296,45 @@ impl DeviceTab {
 /// theme's own text colour. (The toolkit's `Tag::success()` is a fixed green
 /// that ignores the palette and reads poorly on the Dynamic theme; coloured
 /// text on a tint of itself falls under 4.5:1 on some wallpapers.)
+/// 把驱动返回的枚举值翻译成中文用于显示。
+/// 这些值同时用于逻辑判断（如 `connection == "Wireless"`），所以只在显示时映射，
+/// 绝不改写原值。未知值原样返回。
+fn zh_state(s: &str) -> String {
+    match s {
+        "Wireless" => "无线",
+        "Wired" => "有线",
+        "Onboard" => "板载",
+        "Host" => "软件控制",
+        "Low" => "低",
+        "Medium" => "中",
+        "High" => "高",
+        "Off" => "关闭",
+        "Auto" => "自动",
+        "Gaming" => "游戏",
+        "Charging" => "充电中",
+        "Full" => "已充满",
+        // 灯效模式（各品牌驱动返回的值）
+        "Static" => "常亮",
+        "Breathing" => "呼吸",
+        "Spectrum" => "光谱循环",
+        "Wave" => "波浪",
+        "Reactive" => "响应",
+        "Ripple" => "涟漪",
+        "Starlight" => "星光",
+        "Rainbow" => "彩虹",
+        "Color Cycle" => "色彩循环",
+        "ColorShift" => "色彩循环",
+        "Audio Visualizer" => "音频可视化",
+        "Fire" => "火焰",
+        "Wheel" => "滚轮",
+        "Tidal" => "潮汐",
+        "Battery Indicator" => "电量指示",
+        "Random" => "随机",
+        other => other,
+    }
+    .to_string()
+}
+
 fn accent_badge(text: impl Into<SharedString>, accent: Hsla, ink: Hsla) -> Div {
     div()
         .flex()
@@ -476,11 +486,6 @@ pub struct AppView {
     profile_device: Option<String>,
     toast: Option<Toast>,
     toast_seq: u64,
-    /// The Updates page's virtualized list (only the rows on screen are built).
-    updates_list: ListState,
-    /// Newest version `update_check` has seen, if it's ahead of `APP_VERSION`.
-    update_available: Option<crate::update_check::UpdateInfo>,
-    checking_for_updates: bool,
     /// The on-screen game overlay while one is up.
     overlay: Option<AnyWindowHandle>,
     /// Newest scheduled presence update wins (Discord rate-limits them).
@@ -505,6 +510,8 @@ pub struct AppView {
     /// Bumped on every theme change; the ASCII field's animation id carries
     /// it, so each switch replays the entrance.
     theme_seq: u64,
+    /// 键盘（独立 crate `openmouse-keyboard`）的状态与页面。
+    keyboard: keyboard::KeyboardState,
 }
 
 /// Theme swatches in Settings, in display order. Narrows the web app's seven
@@ -521,14 +528,14 @@ const THEME_CHOICES: [ThemeChoice; 5] = [
 
 /// Accent swatches in Settings: (label, hue in degrees).
 const ACCENT_SWATCHES: [(&str, f32); 8] = [
-    ("Red", 0.0),
-    ("Orange", 25.0),
-    ("Yellow", 48.0),
-    ("Green", 130.0),
-    ("Teal", 175.0),
-    ("Blue", 215.0),
-    ("Purple", 265.0),
-    ("Pink", 330.0),
+    ("红色", 0.0),
+    ("橙色", 25.0),
+    ("黄色", 48.0),
+    ("绿色", 130.0),
+    ("青色", 175.0),
+    ("蓝色", 215.0),
+    ("紫色", 265.0),
+    ("粉色", 330.0),
 ];
 const ACCENT_SWATCH_SIZE: f32 = 28.0;
 
@@ -619,9 +626,6 @@ impl AppView {
             profile_device: None,
             toast: None,
             toast_seq: 0,
-            updates_list: ListState::new(crate::changelog::entries().len() + UPDATES_LEADING_ROWS, ListAlignment::Top, px(400.)),
-            update_available: None,
-            checking_for_updates: false,
             overlay: None,
             presence_seq: 0,
             startup_error: None,
@@ -637,6 +641,7 @@ impl AppView {
             ascii_rows: Vec::new(),
             ascii_dims: (0, 0),
             theme_seq: 0,
+            keyboard: keyboard::KeyboardState::default(),
         };
         // The OS entry is the truth for launch-on-startup, not the saved flag.
         view.profiles = crate::profiles::Profiles::load();
@@ -645,6 +650,7 @@ impl AppView {
             view.set_discord(true, cx);
         }
         view.scan_devices(cx);
+        view.scan_keyboard(cx);
         view
     }
 
@@ -675,9 +681,6 @@ impl Default for AppView {
             profile_device: None,
             toast: None,
             toast_seq: 0,
-            updates_list: ListState::new(crate::changelog::entries().len() + UPDATES_LEADING_ROWS, ListAlignment::Top, px(400.)),
-            update_available: None,
-            checking_for_updates: false,
             overlay: None,
             presence_seq: 0,
             startup_error: None,
@@ -690,6 +693,7 @@ impl Default for AppView {
             ascii_rows: Vec::new(),
             ascii_dims: (0, 0),
             theme_seq: 0,
+            keyboard: keyboard::KeyboardState::default(),
         }
     }
 }
@@ -756,9 +760,9 @@ impl AppView {
                 let connected = enabled && result.is_ok();
                 v.discord_error = result.err().map(|error| {
                     if enabled {
-                        format!("Discord Rich Presence is on but unavailable: {error}. Is Discord running?")
+                        format!("Discord Rich Presence 已开启但不可用：{error}。Discord 是否正在运行？")
                     } else {
-                        format!("Could not disconnect from Discord: {error}")
+                        format!("无法断开 Discord 连接：{error}")
                     }
                 });
                 if connected {
@@ -800,7 +804,7 @@ impl AppView {
                 other => {
                     let message = match other {
                         Ok(Err(error)) => error,
-                        _ => "device runtime stopped".to_string(),
+                        _ => "设备运行时已停止".to_string(),
                     };
                     let _ = view.update(cx, |v: &mut Self, cx| {
                         v.devices.scanning = false;
@@ -981,7 +985,7 @@ impl AppView {
                 match result {
                     Ok(Ok(list)) => v.devices.onboard = Some(list),
                     Ok(Err(error)) => v.devices.write_error = Some(error),
-                    Err(_) => v.devices.write_error = Some("device runtime stopped".into()),
+                    Err(_) => v.devices.write_error = Some("设备运行时已停止".into()),
                 }
                 cx.notify();
             });
@@ -1018,13 +1022,13 @@ impl AppView {
                             }
                         }
                         if action == "useProfile" {
-                            v.show_toast(format!("Now running profile {}.", value), false, cx);
+                            v.show_toast(format!("正在使用配置 {}。", value), false, cx);
                         }
                         // Which profile is running changed; read the list again.
                         v.load_onboard_profiles(cx);
                     }
                     Ok(Err(error)) => v.devices.write_error = Some(error),
-                    Err(_) => v.devices.write_error = Some("device runtime stopped".into()),
+                    Err(_) => v.devices.write_error = Some("设备运行时已停止".into()),
                 }
                 cx.notify();
             });
@@ -1040,7 +1044,7 @@ impl AppView {
         }
         let Some(tile) = self.devices.tiles.get(self.devices.selected) else { return };
         let (key, brand) = (tile.key.clone(), tile.brand.clone());
-        // "Link left & right" is one preference for every device that has it.
+        // "左右键联动" is one preference for every device that has it.
         if id.ends_with(".link") {
             if let Some(linked) = value.as_bool() {
                 self.settings.link_left_right = Some(linked);
@@ -1079,7 +1083,7 @@ impl AppView {
                             }
                         }
                         if id.starts_with("logi.button.") {
-                            v.show_toast(format!("Button set to {}.", value.as_str().unwrap_or("the new action")), false, cx);
+                            v.show_toast(format!("按键已设为 {}。", value.as_str().unwrap_or("新动作")), false, cx);
                         }
                         if let Some(tile) = v.devices.tiles.iter_mut().find(|t| t.key == key) {
                             if let TileStatus::Connected(r) = &mut tile.status {
@@ -1094,7 +1098,7 @@ impl AppView {
                         }
                     }
                     Ok(Err(error)) => v.devices.write_error = Some(error),
-                    Err(_) => v.devices.write_error = Some("device runtime stopped".into()),
+                    Err(_) => v.devices.write_error = Some("设备运行时已停止".into()),
                 }
                 cx.notify();
             });
@@ -1154,7 +1158,7 @@ impl AppView {
                         v.refresh_presence(cx);
                     }
                     Ok(Err(error)) => v.devices.write_error = Some(error),
-                    Err(_) => v.devices.write_error = Some("device runtime stopped".into()),
+                    Err(_) => v.devices.write_error = Some("设备运行时已停止".into()),
                 }
                 cx.notify();
             });
@@ -1232,7 +1236,7 @@ impl AppView {
                         break;
                     }
                     Err(_) => {
-                        failure = Some("device runtime stopped".to_string());
+                        failure = Some("设备运行时已停止".to_string());
                         break;
                     }
                 }
@@ -1274,7 +1278,7 @@ impl AppView {
     fn blocked_by_profile(&mut self, cx: &mut Context<Self>) -> bool {
         match self.locked_game() {
             Some(game) => {
-                self.show_toast(format!("Locked while {game} is running — your game profile is in control."), true, cx);
+                self.show_toast(format!("{game} 运行时已锁定 — 当前由游戏配置接管。"), true, cx);
                 true
             }
             None => false,
@@ -1324,7 +1328,7 @@ impl AppView {
             return;
         }
         // A refresh after a write keeps showing the old readout until the new
-        // one lands, so the page does not flash "Connecting…".
+        // one lands, so the page does not flash "正在连接…".
         if !quiet {
             self.devices.tiles[index].status = TileStatus::Connecting;
         }
@@ -1360,7 +1364,7 @@ impl AppView {
                             tile.status = TileStatus::Failed(error);
                         }
                     }
-                    Err(_) => tile.status = TileStatus::Failed("device runtime stopped".into()),
+                    Err(_) => tile.status = TileStatus::Failed("设备运行时已停止".into()),
                 }
                 if connected_now {
                     v.sync_running_profiles(cx);
@@ -1483,7 +1487,7 @@ impl AppView {
             .find(|p| p.is_meaningful() && !p.auto_apply)
             .map(|p| p.describe());
         if let Some(described) = notice {
-            let text = format!("\"{}\" has a profile ({described}). Apply it from the Games page.", self.game_name(id));
+            let text = format!("「{}」已有配置（{described}）。可在「游戏」页面应用。", self.game_name(id));
             self.announce(text, false, true, cx);
         }
         self.sync_running_profiles(cx);
@@ -1522,7 +1526,7 @@ impl AppView {
                 continue;
             }
             let (name, described) = (active.game_name.clone(), active.restore.describe());
-            let text = format!("{name} closed — restored your default {described}.");
+            let text = format!("{name} 已关闭 — 已恢复默认{described}。");
             self.apply_profile_inner(id, &name, &active.device, active.restore, None, Some(text), true, cx);
         }
     }
@@ -1531,7 +1535,7 @@ impl AppView {
     /// apply, which remembers the pre-game settings to restore on close.
     fn apply_profile(&mut self, game_id: &str, device: &str, profile: crate::profiles::GameProfile, auto: bool, cx: &mut Context<Self>) {
         let Some(r) = self.connected_devices().into_iter().find(|(k, _)| k == device).map(|(_, r)| r) else {
-            self.announce("Connect this device to apply a profile.".into(), true, auto, cx);
+            self.announce("连接此设备后才能应用配置。".into(), true, auto, cx);
             return;
         };
         let name = self.game_name(game_id);
@@ -1557,7 +1561,7 @@ impl AppView {
         if auto {
             self.profile_inflight.push((game_id.to_string(), device.to_string()));
         }
-        self.apply_profile_inner(game_id, &name, device, profile, override_, Some(format!("Applied \"{name}\" profile — {described}.")), auto, cx);
+        self.apply_profile_inner(game_id, &name, device, profile, override_, Some(format!("已应用「{name}」配置 — {described}。")), auto, cx);
     }
 
     fn apply_profile_inner(
@@ -1599,8 +1603,8 @@ impl AppView {
                         v.refresh_presence(cx);
                         cx.notify();
                     }
-                    Ok(Err(error)) => v.announce(format!("Couldn't apply \"{name}\" profile: {error}"), true, overlay, cx),
-                    Err(_) => v.announce(format!("Couldn't apply \"{name}\" profile: device runtime stopped"), true, overlay, cx),
+                    Ok(Err(error)) => v.announce(format!("无法应用「{name}」配置：{error}"), true, overlay, cx),
+                    Err(_) => v.announce(format!("无法应用「{name}」配置：设备运行时已停止"), true, overlay, cx),
                 }
             });
         })
@@ -1717,6 +1721,26 @@ impl AppView {
     /// Wallpaper watcher callback: a fresh sample landed. Repaints only
     /// when Dynamic is the live choice (mirrors `refreshDynamicAccent`'s
     /// signature-moved path); other choices keep their palette.
+    /// Repaint the active theme from current settings (theme + vibrancy).
+    fn repaint_theme(&self, window: Option<&mut Window>, cx: &mut App) {
+        // Dynamic repaints from the cached sample — passing None would reset
+        // the shell to the fallback green on every vibrancy tick.
+        let wallpaper = if self.settings.theme == ThemeChoice::Dynamic {
+            crate::theme::cached_dynamic_accent()
+        } else {
+            None
+        };
+        crate::theme::apply_choice(
+            self.settings.theme,
+            wallpaper,
+            self.settings.dynamic_vibrancy,
+            self.settings.window_opacity / 100.0,
+            self.settings.accent,
+            window,
+            cx,
+        );
+    }
+
     pub fn note_wallpaper_sample(
         &mut self,
         accent: (u8, u8, u8),
@@ -1745,209 +1769,6 @@ impl AppView {
         self.theme_seq += 1;
         crate::theme::crossfade_colors(previous, cx.theme().colors, cx);
         cx.notify();
-    }
-
-    /// Update watcher callback: a `latest.json` fetch landed, from either the
-    /// background poll or the manual "Check for updates" button. Stores the
-    /// result and, if it's newer than `APP_VERSION` and this version hasn't
-    /// already been nagged about, toasts once (mirrors
-    /// `runUpdateCheck`/`notifiedVersion` in `src/lib/update-check.ts`).
-    pub fn note_update_available(&mut self, info: crate::update_check::UpdateInfo, cx: &mut Context<Self>) {
-        let is_new = crate::update_check::is_newer(APP_VERSION, &info.version);
-        let should_toast = is_new
-            && self.settings.last_notified_update_version.as_deref() != Some(info.version.as_str());
-        self.update_available = is_new.then(|| info.clone());
-        if should_toast {
-            self.settings.last_notified_update_version = Some(info.version.clone());
-            self.settings.save();
-            self.show_toast(format!("OpenMouse Desktop v{} is available — see Updates.", info.version), false, cx);
-        }
-        cx.notify();
-    }
-
-    /// "Check for updates" button: runs a check right now (not waiting for
-    /// the next background-poll tick) and always surfaces *something* —
-    /// "up to date" included — since the user explicitly asked.
-    fn check_for_updates_now(&mut self, cx: &mut Context<Self>) {
-        if self.checking_for_updates {
-            return;
-        }
-        self.checking_for_updates = true;
-        cx.notify();
-        cx.spawn(async move |view, cx| {
-            let info = cx.background_executor().spawn(async { crate::update_check::fetch_latest() }).await;
-            let _ = view.update(cx, |view, cx| {
-                view.checking_for_updates = false;
-                match info {
-                    // A manual click always wants an answer, even "nothing to
-                    // report" — `note_update_available` itself stays silent
-                    // once a version's already been nagged about.
-                    Some(info) if !crate::update_check::is_newer(APP_VERSION, &info.version) => {
-                        view.note_update_available(info, cx);
-                        view.show_toast("You're up to date.", false, cx);
-                    }
-                    Some(info) => view.note_update_available(info, cx),
-                    None => view.show_toast("Couldn't check for updates — check your connection.", true, cx),
-                }
-            });
-        })
-        .detach();
-    }
-
-    /// Repaint the active theme from current settings (theme + vibrancy).
-    fn repaint_theme(&self, window: Option<&mut Window>, cx: &mut App) {
-        // Dynamic repaints from the cached sample — passing None would reset
-        // the shell to the fallback green on every vibrancy tick.
-        let wallpaper = if self.settings.theme == ThemeChoice::Dynamic {
-            crate::theme::cached_dynamic_accent()
-        } else {
-            None
-        };
-        crate::theme::apply_choice(
-            self.settings.theme,
-            wallpaper,
-            self.settings.dynamic_vibrancy,
-            self.settings.window_opacity / 100.0,
-            self.settings.accent,
-            window,
-            cx,
-        );
-    }
-
-    /// Custom titlebar content mirroring `TitleBar.tsx`: app name plus a
-    /// version·stage badge. Dragging, double-click zoom, and the
-    /// min/max/close buttons stay owned by Kit's `TitleBar`; this only
-    /// supplies the branded row inside it.
-    /// Updates: this version, and the release notes as a timeline (version and
-    /// date on the left, changes grouped under New / Improved / Fixed on the
-    /// right). One virtualized list, so only the rows on screen are built — the
-    /// page used to rebuild every release on each scroll tick and pinned a core.
-    fn render_updates(&self, cx: &mut Context<Self>) -> AnyElement {
-        let colors = PageColors {
-            fg: cx.theme().foreground,
-            muted: cx.theme().muted_foreground,
-            accent: cx.theme().primary,
-            border: Hsla { a: 0.7, ..cx.theme().border },
-        };
-        let checking = self.checking_for_updates;
-        let on_click = cx.listener(|this, _, _, cx| this.check_for_updates_now(cx));
-        let check_button = Button::new("check-updates")
-            .compact()
-            .label("Check for updates")
-            .loading(checking)
-            .disabled(checking)
-            .on_click(on_click)
-            .into_any_element();
-        // The click handler lives on the card's button, built here once per render
-        // of the page (cheap); the list rows are built lazily below.
-        let mut check_button = Some(check_button);
-        let mut update_banner = self.update_available.as_ref().map(|info| {
-            let notes = info.notes.clone().unwrap_or_default();
-            h_flex()
-                .gap_3()
-                .items_center()
-                .justify_between()
-                .p_4()
-                .mt_3()
-                .rounded_lg()
-                .border_1()
-                .border_color(colors.accent)
-                .bg(Hsla { a: 0.08, ..colors.accent })
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(colors.fg)
-                                .child(format!("v{} is available", info.version)),
-                        )
-                        .children((!notes.is_empty()).then(|| div().text_xs().text_color(colors.muted).child(notes))),
-                )
-                .child(
-                    Button::new("view-release")
-                        .compact()
-                        .label("View release")
-                        .on_click(cx.listener(|_, _, _, _| {
-                            // Opens the GitHub release page for a manual download —
-                            // this pass is check + notify only, no in-app download/install.
-                            let _ = crate::proc::quiet(
-                                std::process::Command::new("cmd")
-                                    .args(["/C", "start", ""])
-                                    .arg("https://github.com/OpenMouse-Project/Desktop/releases/latest")
-                                    .stdin(std::process::Stdio::null())
-                                    .stdout(std::process::Stdio::null())
-                                    .stderr(std::process::Stdio::null()),
-                            )
-                            .spawn();
-                        }))
-                        .into_any_element(),
-                )
-                .into_any_element()
-        });
-
-        let entries = crate::changelog::entries();
-        let list_state = self.updates_list.clone();
-        let stage = release_stage(APP_VERSION);
-
-        list(list_state, move |ix, _window, _cx| {
-            let c = colors;
-            let body: AnyElement = match ix {
-                0 => div()
-                    .flex()
-                    .flex_col()
-                    .child(div().text_xl().font_weight(FontWeight::SEMIBOLD).text_color(c.fg).child("Updates"))
-                    .child(div().text_sm().text_color(c.muted).child("Your version and what's changed"))
-                    .children(update_banner.take())
-                    .into_any_element(),
-                1 => h_flex()
-                    .gap_4()
-                    .items_center()
-                    .justify_between()
-                    .p_6()
-                    .mt_5()
-                    .rounded_xl()
-                    .border_1()
-                    .border_color(Hsla { a: 0.35, ..c.accent })
-                    .bg(Hsla { a: 0.06, ..c.accent })
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1p5()
-                            .child(div().text_xs().text_color(c.muted).child("OpenMouse Desktop"))
-                            .child(
-                                h_flex()
-                                    .gap_3()
-                                    .items_center()
-                                    .child(div().text_2xl().font_weight(FontWeight::BOLD).text_color(c.fg).child(format!("v{APP_VERSION}")))
-                                    .child(accent_badge(stage.to_string(), c.accent, c.fg)),
-                            )
-                            .child(div().text_sm().text_color(c.muted).child("You're running this version.")),
-                    )
-                    .children(check_button.take())
-                    .into_any_element(),
-                2 => div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .pt_8()
-                    .pb_1()
-                    .child(div().text_base().font_weight(FontWeight::SEMIBOLD).text_color(c.fg).child("Release notes"))
-                    .children(entries.is_empty().then(|| div().text_sm().text_color(c.muted).child("No release notes yet.")))
-                    .into_any_element(),
-                n => match entries.get(n - UPDATES_LEADING_ROWS) {
-                    Some(entry) => release_row(entry, entry.version == APP_VERSION, c),
-                    None => div().into_any_element(),
-                },
-            };
-            div().w_full().px_4().pt_3().child(div().max_w(px(960.)).child(body)).into_any_element()
-        })
-        .size_full()
-        .into_any_element()
     }
 
     /// One nav row: icon and label, a tinted fill and an accent bar when active.
@@ -1988,7 +1809,7 @@ impl AppView {
             .when(!collapsed, |row| row.child(label.to_string()))
     }
 
-    /// A footer row (Help & Feedback, Settings): an icon, a title with an optional
+    /// A footer row (Updates, Settings): an icon, a title with an optional
     /// subtitle, and a chevron.
     fn footer_row(
         &self,
@@ -2157,7 +1978,10 @@ impl AppView {
                 cx.listener(move |this, _, _, cx| {
                     // Choosing the page you are on goes back to its top level.
                     match page {
-                        Page::Overview => this.devices.open = None,
+                        Page::Overview => {
+                            this.devices.open = None;
+                            this.keyboard.open = false;
+                        }
                         Page::Games => this.profile_editor = None,
                         _ => {}
                     }
@@ -2167,11 +1991,8 @@ impl AppView {
             ));
         }
 
-        let discord = img(themed_discord(cx.theme().muted_foreground)).w(px(22.)).h(px(17.)).into_any_element();
-        let on_updates = self.page == Page::Updates;
         let on_settings = self.page == Page::Settings;
         let tone = |active: bool| if active { accent } else { cx.theme().muted_foreground };
-        let updates_icon = Icon::new(Page::Updates.icon()).size(px(18.)).text_color(tone(on_updates)).into_any_element();
         let gear = Icon::new(Page::Settings.icon()).size(px(18.)).text_color(tone(on_settings)).into_any_element();
         let footer = div()
             .flex()
@@ -2181,19 +2002,6 @@ impl AppView {
             .border_color(Hsla { a: 0.8, ..border })
             .bg(Hsla { a: 0.04, ..fg })
             .overflow_hidden()
-            .child(
-                self.footer_row("footer-updates", updates_icon, "Updates", Some(&format!("v{APP_VERSION} · Release notes")), on_updates, collapsed, cx)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.page = Page::Updates;
-                        cx.notify();
-                    })),
-            )
-            .child(div().h(px(1.)).w_full().bg(Hsla { a: 0.8, ..border }))
-            .child(
-                self.footer_row("footer-discord", discord, "Help & Feedback", Some("Join the community server"), false, collapsed, cx)
-                    .on_click(cx.listener(|_, _, _, cx| cx.open_url(DISCORD_INVITE_URL))),
-            )
-            .child(div().h(px(1.)).w_full().bg(Hsla { a: 0.8, ..border }))
             .child(
                 self.footer_row("footer-settings", gear, Page::Settings.label(), None, self.page == Page::Settings, collapsed, cx)
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -2229,8 +2037,8 @@ impl AppView {
             .ghost()
             .compact()
             .icon(IconName::Menu)
-            .accessibility_label(if collapsed { "Expand sidebar" } else { "Collapse sidebar" })
-            .tooltip(if collapsed { "Expand sidebar" } else { "Collapse sidebar" })
+            .accessibility_label(if collapsed { "展开侧边栏" } else { "收起侧边栏" })
+            .tooltip(if collapsed { "展开侧边栏" } else { "收起侧边栏" })
             .on_click(cx.listener(|this, _, _, cx| {
                 this.sidebar_collapsed = !this.sidebar_collapsed;
                 cx.notify();
@@ -2291,9 +2099,6 @@ impl AppView {
         if self.page == Page::Settings {
             return self.render_settings(window, cx);
         }
-        if self.page == Page::Updates {
-            return self.render_updates(cx);
-        }
         if self.page == Page::Games {
             if let Some(id) = self.profile_editor.clone() {
                 return self.render_profile_editor(&id, cx);
@@ -2305,7 +2110,7 @@ impl AppView {
             return self.render_overview(size.width.into(), size.height.into(), cx);
         }
         let (title, body): (&str, &str) = match self.page {
-            Page::Supported => ("Supported mice", "Supported device catalog lives here."),
+            Page::Supported => ("支持的鼠标", "支持的设备目录。"),
             _ => unreachable!(),
         };
         div()
@@ -2551,7 +2356,7 @@ impl AppView {
                     .iter()
                     .find(|o| o.value == c.current)
                     .map(|o| o.label.clone())
-                    .unwrap_or_else(|| "Custom".to_string());
+                    .unwrap_or_else(|| "自定义".to_string());
                 if open {
                     let mut grid = h_flex().gap_2().flex_wrap().justify_end();
                     for option in &c.options {
@@ -2609,11 +2414,11 @@ impl AppView {
         if !onboard_mode {
             return col
                 .child(note(
-                    "Button changes are saved into the mouse's stored profile, which only runs in Onboard memory mode. The mouse is currently under software control.",
+                    "按键更改会保存到鼠标的板载配置，而板载配置仅在板载内存模式下生效。鼠标当前由软件控制。",
                 ))
                 .child(
                     Button::new("buttons-onboard")
-                        .label("Switch to Onboard memory mode")
+                        .label("切换到板载内存模式")
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.onboard_action("mode", serde_json::json!("Onboard"), cx)
                         })),
@@ -2623,17 +2428,17 @@ impl AppView {
         let Some(read) = &self.devices.onboard else {
             return col
                 .child(note(if self.devices.onboard_loading {
-                    "Reading the mouse's buttons…"
+                    "正在读取鼠标按键…"
                 } else {
-                    "Buttons haven't been read yet."
+                    "尚未读取按键。"
                 }))
                 .into_any_element();
         };
         let Some(running) = read.profiles.iter().find(|p| p.is_current) else {
-            return col.child(note("No stored profile is running.")).into_any_element();
+            return col.child(note("当前没有运行中的板载配置。")).into_any_element();
         };
 
-        const NAMES: [&str; 5] = ["Left button", "Right button", "Middle button", "Back", "Forward"];
+        const NAMES: [&str; 5] = ["左键", "右键", "中键", "返回", "前进"];
         let options: Vec<crate::hid::OptionSpec> = read
             .actions
             .iter()
@@ -2652,10 +2457,10 @@ impl AppView {
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(fg)
-                    .child(format!("Profile {} — buttons", running.sector)),
+                    .child(format!("配置 {} — 按键", running.sector)),
             );
         for (n, assignment) in running.button_assignments.iter().enumerate() {
-            let label = NAMES.get(n).map(|s| s.to_string()).unwrap_or_else(|| format!("Button {}", n + 1));
+            let label = NAMES.get(n).map(|s| s.to_string()).unwrap_or_else(|| format!("按键 {}", n + 1));
             // A macro or custom binding the protocol can't name shows as such.
             let current = assignment.get("action").cloned().unwrap_or(serde_json::Value::Null);
             let spec = crate::hid::ControlSpec {
@@ -2675,13 +2480,13 @@ impl AppView {
             card = card.child(self.render_control(&spec, cx));
         }
         col = col.child(card).child(note(
-            "Saved to the mouse's memory. Choose a different action for a button to remap it.",
+            "已保存到鼠标内存。为按键选择其他动作即可重新映射。",
         ));
         if self.devices.writing.is_some() {
-            col = col.child(note("Saving…"));
+            col = col.child(note("正在保存…"));
         }
         if let Some(error) = &self.devices.write_error {
-            col = col.child(div().text_sm().text_color(cx.theme().danger).child(format!("Could not save: {error}")));
+            col = col.child(div().text_sm().text_color(cx.theme().danger).child(format!("保存失败：{error}")));
         }
         col.into_any_element()
     }
@@ -2715,11 +2520,11 @@ impl AppView {
                             .gap_0p5()
                             .flex_1()
                             .min_w_0()
-                            .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(fg).child("Onboard memory mode"))
+                            .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(fg).child("板载内存模式"))
                             .child(div().text_xs().text_color(muted).child(if onboard_mode {
-                                "The mouse is running its own stored profile."
+                                "鼠标正在运行自身的板载配置。"
                             } else {
-                                "Software is controlling the mouse, so its stored profiles are bypassed. Changing DPI or polling rate in this app puts the mouse in this mode."
+                                "鼠标当前由软件控制，板载配置被绕过。在本应用中修改 DPI 或回报率会让鼠标进入此模式。"
                             })),
                     )
                     .child(
@@ -2735,16 +2540,16 @@ impl AppView {
         match &self.devices.onboard {
             None => {
                 col = col.child(div().text_sm().text_color(muted).child(if self.devices.onboard_loading {
-                    "Reading the mouse's profiles…"
+                    "正在读取鼠标配置…"
                 } else {
-                    "Profiles haven't been read yet."
+                    "尚未读取配置。"
                 }));
             }
             Some(list) => {
                 let mut rows = div().flex().flex_col().gap_2();
                 for p in &list.profiles {
                     let sector = p.sector;
-                    let title = p.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| format!("Profile {}", p.sector));
+                    let title = p.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| format!("配置 {}", p.sector));
                     let running = p.is_current && onboard_mode;
                     let dpis: Vec<String> = p
                         .dpi_stages
@@ -2761,10 +2566,10 @@ impl AppView {
                         facts.push(format!("{hz} Hz"));
                     }
                     if !p.button_assignments.is_empty() {
-                        facts.push(format!("{} buttons", p.button_assignments.len()));
+                        facts.push(format!("{} 个按键", p.button_assignments.len()));
                     }
                     if !p.crc_valid {
-                        facts.push("checksum mismatch".to_string());
+                        facts.push("校验和不匹配".to_string());
                     }
                     rows = rows.child(
                         h_flex()
@@ -2787,8 +2592,8 @@ impl AppView {
                                             .gap_2()
                                             .items_center()
                                             .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(fg).child(title))
-                                            .when(running, |row| row.child(accent_badge("Running", accent, ink)))
-                                            .when(!p.enabled, |row| row.child(Tag::secondary().small().child("Disabled"))),
+                                            .when(running, |row| row.child(accent_badge("运行中", accent, ink)))
+                                            .when(!p.enabled, |row| row.child(Tag::secondary().small().child("已禁用"))),
                                     )
                                     .child(div().text_xs().text_color(muted).child(facts.join("  ·  "))),
                             )
@@ -2796,7 +2601,7 @@ impl AppView {
                                 row.child(
                                     Button::new(SharedString::from(format!("use-profile-{sector}")))
                                         .compact()
-                                        .label(if busy { "Switching…" } else { "Use" })
+                                        .label(if busy { "正在切换…" } else { "使用" })
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             this.onboard_action("useProfile", serde_json::json!(sector), cx)
                                         })),
@@ -2804,10 +2609,10 @@ impl AppView {
                             }),
                     );
                 }
-                col = col.child(card().child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(fg).child("Stored profiles")).child(rows));
+                col = col.child(card().child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(fg).child("板载配置")).child(rows));
                 col = col.child(
                     div().text_xs().text_color(muted).child(
-                        "Editing a stored profile, or enabling and disabling slots, rewrites the mouse's flash memory. That isn't offered here yet.",
+                        "编辑板载配置或启用、禁用槽位会改写鼠标的闪存，此处暂不支持。",
                     ),
                 );
             }
@@ -2842,9 +2647,9 @@ impl AppView {
         if let Some(sections) = sections {
             if sections.is_empty() {
                 return placeholder(if self.devices.tab == DeviceTab::Buttons {
-                    "No reconfigurable buttons are exposed by this device's driver."
+                    "此设备的驱动未提供可重新映射的按键。"
                 } else {
-                    "No brand-specific settings are exposed by this device's driver."
+                    "此设备的驱动未提供品牌专属设置。"
                 });
             }
             for section in sections {
@@ -2879,7 +2684,7 @@ impl AppView {
             };
             if spec.write_only {
                 col = col.child(div().text_xs().text_color(muted).child(
-                    "Lighting is write-only on this device. The current effect is cached from the last change and may not reflect the hardware state.",
+                    "此设备的灯效只支持写入。当前效果为上次更改时缓存的值，可能与硬件实际状态不一致。",
                 ));
             }
             let mut effects = h_flex().gap_2().flex_wrap();
@@ -2888,13 +2693,13 @@ impl AppView {
                 let picked = m.clone();
                 effects = effects.child(self.chip(
                     format!("light-mode-{m}"),
-                    m.clone(),
+                    zh_state(&m),
                     mode.as_deref() == Some(m.as_str()),
                     cx,
                     move |this, cx| this.edit_lighting(|l| l.mode = Some(picked.clone()), &spec2, cx),
                 ));
             }
-            col = col.child(card("Effect").child(effects));
+            col = col.child(card("灯效模式").child(effects));
 
             let swatches = |cx: &mut Context<Self>, which: u8, current: Option<String>| {
                 let mut row = h_flex().gap_2().flex_wrap();
@@ -2925,11 +2730,11 @@ impl AppView {
             };
             if in_mode(&spec.color_modes) {
                 let current = e.color.clone().or_else(|| spec.color.clone());
-                col = col.child(card("Color").child(swatches(cx, 1, current)));
+                col = col.child(card("颜色").child(swatches(cx, 1, current)));
             }
             if in_mode(&spec.dual_color_modes) {
                 let current = e.color2.clone().or_else(|| spec.color2.clone());
-                col = col.child(card("Second color").child(swatches(cx, 2, current)));
+                col = col.child(card("第二颜色").child(swatches(cx, 2, current)));
             }
             if in_mode(&spec.reactive_modes) && !spec.speeds.is_empty() {
                 let current = e.speed.or(spec.speed);
@@ -2944,17 +2749,17 @@ impl AppView {
                         move |this, cx| this.edit_lighting(|l| l.speed = Some(sp), &spec2, cx),
                     ));
                 }
-                col = col.child(card("Speed").child(row));
+                col = col.child(card("速度").child(row));
             }
         } else {
-            return placeholder("No lighting data available for this device.");
+            return placeholder("此设备没有可用的灯效数据。");
         }
 
         if busy && self.settings.instant_apply {
-            col = col.child(div().text_sm().text_color(muted).child("Applying…"));
+            col = col.child(div().text_sm().text_color(muted).child("正在应用…"));
         }
         if let Some(error) = &self.devices.write_error {
-            col = col.child(div().text_sm().text_color(cx.theme().danger).child(format!("Could not apply: {error}")));
+            col = col.child(div().text_sm().text_color(cx.theme().danger).child(format!("应用失败：{error}")));
         }
         col.into_any_element()
     }
@@ -2975,10 +2780,10 @@ impl AppView {
         let mut facts = vec![tile.display_brand.clone()];
         if let TileStatus::Connected(r) = &tile.status {
             if let Some(c) = &r.connection {
-                facts.push(c.clone());
+                facts.push(zh_state(c));
             }
             if let Some(b) = r.battery {
-                facts.push(format!("{b:.0}%{}", if r.charging { " charging" } else { "" }));
+                facts.push(format!("{b:.0}%{}", if r.charging { " 充电中" } else { "" }));
             }
         }
         let header = h_flex()
@@ -2988,8 +2793,8 @@ impl AppView {
                 Button::new("device-back")
                     .ghost()
                     .icon(IconName::ArrowLeft)
-                    .tooltip("Back to devices")
-                    .accessibility_label("Back to devices")
+                    .tooltip("返回设备列表")
+                    .accessibility_label("返回设备列表")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.devices.open = None;
                         this.devices.write_error = None;
@@ -3006,7 +2811,7 @@ impl AppView {
                             .text_xl()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(fg)
-                            .child(if tile.name.is_empty() { "Unknown device".to_string() } else { tile.name.clone() }),
+                            .child(if tile.name.is_empty() { "未知设备".to_string() } else { tile.name.clone() }),
                     )
                     .child(div().text_sm().text_color(muted).child(facts.join("  ·  "))),
             );
@@ -3031,7 +2836,7 @@ impl AppView {
                 // Locked while a game profile is in control of this device.
                 if let Some(game) = self.locked_game() {
                     col = col.child(div().text_sm().text_color(muted).child(format!(
-                        "Locked while {game} is running — these are your game profile's settings, and they're editable again once the game closes."
+                        "{game} 运行时已锁定 — 当前为游戏配置的设置，游戏关闭后可再次编辑。"
                     )));
                 }
 
@@ -3089,7 +2894,7 @@ impl AppView {
                                 cx.listener(move |this, _, _, cx| apply(this, step, cx)),
                             ))
                     };
-                    let mut card = section("Sensitivity (DPI)").child(axis_row(unlinked.then_some("X"), x_now, false, cx));
+                    let mut card = section("灵敏度 (DPI)").child(axis_row(unlinked.then_some("X"), x_now, false, cx));
                     if unlinked {
                         card = card.child(axis_row(Some("Y"), y_now, true, cx));
                     }
@@ -3115,11 +2920,11 @@ impl AppView {
                                         cx.notify();
                                     })),
                                 )
-                                .child(div().text_sm().text_color(fg).child("Link X and Y"))
-                                .child(div().text_xs().text_color(muted).child("Move both axes together")),
+                                .child(div().text_sm().text_color(fg).child("关联 X 与 Y"))
+                                .child(div().text_xs().text_color(muted).child("同时移动两个轴")),
                         );
                     }
-                    let now = if (cur_y - current).abs() > 0.5 { format!("now {current:.0} (Y {cur_y:.0})") } else { format!("now {current:.0}") };
+                    let now = if (cur_y - current).abs() > 0.5 { format!("当前 {current:.0}（Y {cur_y:.0}）") } else { format!("当前 {current:.0}") };
                     col = col.child(card.child(div().text_xs().text_color(muted).child(now)));
                 }
 
@@ -3141,9 +2946,9 @@ impl AppView {
                             },
                         ));
                     }
-                    let mut card = section("Polling rate").child(row.when(read_only, |r| r.opacity(0.45)));
+                    let mut card = section("回报率").child(row.when(read_only, |r| r.opacity(0.45)));
                     if read_only {
-                        card = card.child(div().text_xs().text_color(muted).child("This mouse reports its polling rate but doesn't let it be changed."));
+                        card = card.child(div().text_xs().text_color(muted).child("此鼠标只上报回报率，不支持修改。"));
                     }
                     col = col.child(card);
                 }
@@ -3160,7 +2965,7 @@ impl AppView {
                         let picked = option.clone();
                         row = row.child(self.chip(
                             format!("lod-{option}"),
-                            option.clone(),
+                            zh_state(&option),
                             shown.as_deref() == Some(option.as_str()),
                             cx,
                             move |this, cx| {
@@ -3170,11 +2975,11 @@ impl AppView {
                             },
                         ));
                     }
-                    col = col.child(section("Lift-off distance").child(row.when(disabled, |r| r.opacity(0.45))).child(div().text_xs().text_color(muted).child(
+                    col = col.child(section("抬起高度").child(row.when(disabled, |r| r.opacity(0.45))).child(div().text_xs().text_color(muted).child(
                         if disabled {
-                            "Available with a gaming surface mode selected — lift-off distance is ignored while surface tracking is off."
+                            "需先选择游戏表面模式 — 表面追踪关闭时，抬起高度设置不生效。"
                         } else {
-                            "How far you can lift the mouse before tracking stops. Higher values keep tracking a little longer."
+                            "鼠标抬起多高后停止追踪。数值越大，追踪保持的时间略长。"
                         },
                     )));
                 }
@@ -3185,14 +2990,14 @@ impl AppView {
                     for mode in c.surface_modes.iter().cloned() {
                         row = row.child(self.chip(
                             format!("surface-{mode}"),
-                            mode.clone(),
+                            zh_state(&mode),
                             shown == mode,
                             cx,
                             move |this, cx| this.edit("surface", serde_json::json!(mode), cx),
                         ));
                     }
-                    col = col.child(section("Gaming surface mode").child(row).child(div().text_xs().text_color(muted).child(
-                        "Tunes the sensor for gaming mouse pads. Auto lets the mouse decide; turn it off if tracking misbehaves on a non-gaming surface.",
+                    col = col.child(section("游戏表面模式").child(row).child(div().text_xs().text_color(muted).child(
+                        "针对游戏鼠标垫优化传感器。自动模式由鼠标自行判断；在非游戏表面出现追踪异常时请关闭。",
                     )));
                 }
 
@@ -3208,24 +3013,24 @@ impl AppView {
                 }
 
                 if busy && instant {
-                    col = col.child(div().text_sm().text_color(muted).child("Applying…"));
+                    col = col.child(div().text_sm().text_color(muted).child("正在应用…"));
                 }
                 if let Some(error) = &self.devices.write_error {
-                    col = col.child(div().text_sm().text_color(cx.theme().danger).child(format!("Could not apply: {error}")));
+                    col = col.child(div().text_sm().text_color(cx.theme().danger).child(format!("应用失败：{error}")));
                 }
                 col.into_any_element()
             }
             TileStatus::Failed(error) => div()
                 .text_sm()
                 .text_color(cx.theme().danger)
-                .child(format!("Could not read this device: {error}"))
+                .child(format!("无法读取此设备：{error}"))
                 .into_any_element(),
-            _ => div().text_sm().text_color(muted).child("Connecting…").into_any_element(),
+            _ => div().text_sm().text_color(muted).child("正在连接…").into_any_element(),
         };
 
         let firmware = match &tile.status {
             TileStatus::Connected(r) if !r.firmware.is_empty() => {
-                Some(format!("Firmware {}", r.firmware.join(" · ")))
+                Some(format!("固件 {}", r.firmware.join(" · ")))
             }
             _ => None,
         };
@@ -3293,7 +3098,7 @@ impl AppView {
             .border_color(cx.theme().primary)
             .bg(cx.theme().sidebar)
             .shadow_lg()
-            .child(div().text_sm().text_color(fg).child("You have unsaved changes"))
+            .child(div().text_sm().text_color(fg).child("有未保存的更改"))
             .child(
                 h_flex()
                     .gap_2()
@@ -3301,7 +3106,7 @@ impl AppView {
                         Button::new("revert")
                             .ghost()
                             .compact()
-                            .label("Revert")
+                            .label("撤销")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.devices.staged = Staged::default();
                                 this.devices.write_error = None;
@@ -3311,7 +3116,7 @@ impl AppView {
                     .child(
                         Button::new("apply-changes")
                             .compact()
-                            .label(if busy { "Applying…" } else { "Apply Changes" })
+                            .label(if busy { "正在应用…" } else { "应用更改" })
                             .on_click(cx.listener(|this, _, _, cx| this.apply_staged(cx))),
                     ),
             );
@@ -3366,6 +3171,10 @@ impl AppView {
     /// Overview: the connected mouse and its artwork, read through the shared
     /// protocol drivers (`crate::hid`).
     fn render_overview(&self, view_width: f32, view_height: f32, cx: &mut Context<Self>) -> AnyElement {
+        // 键盘详情页和鼠标设备页平级，谁打开都先于列表渲染。
+        if self.keyboard.open {
+            return self.render_keyboard_page(cx);
+        }
         if let Some(tile) = self
             .devices
             .open
@@ -3391,12 +3200,16 @@ impl AppView {
                             .text_xl()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(fg)
-                            .child("Overview"),
+                            .child("总览"),
                     )
-                    .child(div().text_sm().text_color(muted).child(match devices.tiles.len() {
-                        0 => "No mouse connected".to_string(),
-                        1 => "1 supported device found".to_string(),
-                        n => format!("{n} supported devices found"),
+                    .child(div().text_sm().text_color(muted).child({
+                        // 键盘也计入，鼠标和键盘都是"支持的设备"。
+                        let total = devices.tiles.len() + usize::from(self.keyboard.present);
+                        match total {
+                            0 => "未连接设备".to_string(),
+                            1 => "找到 1 个支持的设备".to_string(),
+                            n => format!("找到 {n} 个支持的设备"),
+                        }
                     })),
             )
             .child(
@@ -3404,8 +3217,11 @@ impl AppView {
                     .ghost()
                     .compact()
                     .icon(IconName::Redo)
-                    .label(if devices.scanning { "Scanning…" } else { "Rescan" })
-                    .on_click(cx.listener(|this, _, _, cx| this.scan_devices(cx))),
+                    .label(if devices.scanning { "正在扫描…" } else { "重新扫描" })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.scan_devices(cx);
+                        this.scan_keyboard(cx);
+                    })),
             );
 
         let body: AnyElement = if let Some(tile) = devices.tiles.get(devices.selected) {
@@ -3434,7 +3250,7 @@ impl AppView {
             match &tile.status {
                 TileStatus::Connected(r) => {
                     if let Some(c) = &r.connection {
-                        tags = tags.child(accent_badge(c.clone(), cx.theme().primary, cx.theme().foreground));
+                        tags = tags.child(accent_badge(zh_state(c), cx.theme().primary, cx.theme().foreground));
                     }
                     if let Some(b) = r.battery {
                         let fill = (b / 100.0).clamp(0.0, 1.0) as f32;
@@ -3445,8 +3261,8 @@ impl AppView {
                                 .gap_1()
                                 .child(
                                     div().text_sm().text_color(muted).child(format!(
-                                        "Battery {b:.0}%{}",
-                                        if r.charging { " · charging" } else { "" }
+                                        "电量 {b:.0}%{}",
+                                        if r.charging { " · 充电中" } else { "" }
                                     )),
                                 )
                                 .child(
@@ -3471,17 +3287,17 @@ impl AppView {
                     }
                     // A fixed-rate pipeline (Starlight X) has no rate to show, only its name.
                     if r.polling_read_only && r.polling_rates.is_empty() {
-                        stats = stats.child(stat("Polling rate", "Perfect Polling".to_string()));
+                        stats = stats.child(stat("回报率", "Perfect Polling".to_string()));
                     } else if let Some(hz) = r.polling_hz {
-                        stats = stats.child(stat("Polling rate", format!("{hz:.0} Hz")));
+                        stats = stats.child(stat("回报率", format!("{hz:.0} Hz")));
                     }
                     if !r.firmware.is_empty() {
-                        stats = stats.child(stat("Firmware", r.firmware.join(" · ")));
+                        stats = stats.child(stat("固件", r.firmware.join(" · ")));
                     }
                     details = details.child(stats);
                 }
                 TileStatus::Connecting => {
-                    details = details.child(div().text_sm().text_color(muted).child("Connecting…"));
+                    details = details.child(div().text_sm().text_color(muted).child("正在连接…"));
                 }
                 TileStatus::Failed(error) => {
                     details = details
@@ -3489,13 +3305,13 @@ impl AppView {
                             div()
                                 .text_sm()
                                 .text_color(cx.theme().danger)
-                                .child(format!("Could not read this device: {error}")),
+                                .child(format!("无法读取此设备：{error}")),
                         )
                         .child({
                             let key = tile.key.clone();
                             Button::new("retry")
                                 .compact()
-                                .label("Try again")
+                                .label("重试")
                                 .on_click(cx.listener(move |this, _, _, cx| this.connect_tile(&key, false, cx)))
                         });
                 }
@@ -3504,7 +3320,7 @@ impl AppView {
                         let key = tile.key.clone();
                         Button::new("connect")
                             .compact()
-                            .label("Connect")
+                            .label("连接")
                             .on_click(cx.listener(move |this, _, _, cx| this.connect_tile(&key, false, cx)))
                     });
                 }
@@ -3534,7 +3350,7 @@ impl AppView {
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .text_color(fg)
                                         .child(if tile.name.is_empty() {
-                                            "Unknown device".to_string()
+                                            "未知设备".to_string()
                                         } else {
                                             tile.name.clone()
                                         }),
@@ -3553,7 +3369,9 @@ impl AppView {
             let sidebar = if self.sidebar_collapsed { SIDEBAR_COLLAPSED_W } else { SIDEBAR_W };
             let avail = (view_width - sidebar - 2.0 * PAGE_PAD).max(MIN_CARD_W);
             let fit = (((avail + GRID_GAP) / (MIN_CARD_W + GRID_GAP)).floor() as usize).clamp(1, 6);
-            let cols = fit.min(devices.tiles.len()).max(1) as u16;
+            // 键盘也算一张卡片：鼠标和键盘在同一个网格里混排。
+            let keyboard_cards = usize::from(self.keyboard.present);
+            let cols = fit.min(devices.tiles.len() + keyboard_cards).max(1) as u16;
             let card_w = (avail - GRID_GAP * (cols as f32 - 1.0)) / cols as f32;
             // The art is as big as the card is wide, but must leave room for the
             // title bar, header, name/status lines and padding on a short window.
@@ -3563,23 +3381,23 @@ impl AppView {
                 let key = t.key.clone();
                 let active = i == devices.selected;
                 let (status_line, status_color) = match &t.status {
-                    TileStatus::Idle => ("Click to connect".to_string(), muted),
-                    TileStatus::Connecting => ("Connecting…".to_string(), muted),
+                    TileStatus::Idle => ("点击连接".to_string(), muted),
+                    TileStatus::Connecting => ("正在连接…".to_string(), muted),
                     // A wireless mouse that is off or asleep answers nothing; say what to do.
-                    TileStatus::Failed(error) if error.to_lowercase().contains("asleep") || error.to_lowercase().contains("out of range") => {
-                        ("Asleep or out of range — wake it, then click to retry".to_string(), cx.theme().danger)
+                    TileStatus::Failed(error) if error.to_lowercase().contains("asleep") || error.to_lowercase().contains("超出范围") => {
+                        ("已休眠或超出范围 — 唤醒后点击重试".to_string(), cx.theme().danger)
                     }
-                    TileStatus::Failed(_) => ("Couldn't connect — click to retry".to_string(), cx.theme().danger),
+                    TileStatus::Failed(_) => ("连接失败 — 点击重试".to_string(), cx.theme().danger),
                     TileStatus::Connected(r) => {
                         let mut parts = Vec::new();
                         if let Some(b) = r.battery {
                             parts.push(format!("{b:.0}%{}", if r.charging { " ⚡" } else { "" }));
                         }
                         if let Some(c) = &r.connection {
-                            parts.push(c.clone());
+                            parts.push(zh_state(c));
                         }
                         if parts.is_empty() {
-                            parts.push("Connected".to_string());
+                            parts.push("已连接".to_string());
                         }
                         (parts.join("  ·  "), muted)
                     }
@@ -3607,7 +3425,7 @@ impl AppView {
                                 .text_color(fg)
                                 .truncate()
                                 .child(if t.name.is_empty() {
-                                    "Unknown device".to_string()
+                                    "未知设备".to_string()
                                 } else {
                                     t.name.clone()
                                 }),
@@ -3616,6 +3434,9 @@ impl AppView {
                         .child(div().w_full().p_3().flex().justify_center().child(self.device_art(t, art_side, 1.3)))
                         .on_click(cx.listener(move |this, _, _, cx| this.open_device(&key, cx))),
                 );
+            }
+            if self.keyboard.present {
+                grid = grid.child(self.render_keyboard_card(cx, card_w));
             }
             let col = div()
                 .flex()
@@ -3626,19 +3447,25 @@ impl AppView {
             col.into_any_element()
         } else {
             let message = match (&devices.error, devices.scanning) {
-                (Some(error), _) => format!("Could not scan for devices: {error}"),
-                (None, true) => "Looking for mice…".to_string(),
-                (None, false) => "No supported mouse found. Plug one in and press Rescan.".to_string(),
+                (Some(error), _) => format!("扫描设备失败：{error}"),
+                (None, true) => "正在查找设备…".to_string(),
+                (None, false) => "未找到支持的鼠标。请插入鼠标后按「重新扫描」。".to_string(),
             };
-            div()
-                .p_6()
-                .rounded_xl()
-                .border_1()
-                .border_color(border)
-                .text_sm()
-                .text_color(muted)
-                .child(message)
-                .into_any_element()
+            let mut empty = div().flex().flex_col().gap_4().child(
+                div()
+                    .p_6()
+                    .rounded_xl()
+                    .border_1()
+                    .border_color(border)
+                    .text_sm()
+                    .text_color(muted)
+                    .child(message),
+            );
+            // 没有鼠标但接了键盘时，键盘照样要出现在总览里。
+            if self.keyboard.present {
+                empty = empty.child(div().max_w(px(420.)).child(self.render_keyboard_card(cx, 380.0)));
+            }
+            empty.into_any_element()
         };
 
         div()
@@ -3680,8 +3507,8 @@ impl AppView {
                 Button::new("profile-back")
                     .ghost()
                     .icon(IconName::ArrowLeft)
-                    .tooltip("Back to games")
-                    .accessibility_label("Back to games")
+                    .tooltip("返回游戏列表")
+                    .accessibility_label("返回游戏列表")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.profile_editor = None;
                         cx.notify();
@@ -3692,7 +3519,7 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .child(div().text_xl().font_weight(FontWeight::SEMIBOLD).text_color(fg).child(name))
-                    .child(div().text_sm().text_color(muted).child("Device profile")),
+                    .child(div().text_sm().text_color(muted).child("设备配置")),
             );
 
         // Device picker: one chip per device. A device that isn't connected yet is
@@ -3704,7 +3531,7 @@ impl AppView {
             for (i, tile) in self.devices.tiles.iter().enumerate() {
                 let key = tile.key.clone();
                 let has_profile = self.profiles.get(game_id, &tile.key).is_some_and(|p| p.is_meaningful());
-                let label = if tile.name.is_empty() { "Unknown device".to_string() } else { tile.name.clone() };
+                let label = if tile.name.is_empty() { "未知设备".to_string() } else { tile.name.clone() };
                 row = row.child(self.chip(
                     format!("pf-device-{}", tile.key),
                     if has_profile { format!("{label} ●") } else { label },
@@ -3726,8 +3553,8 @@ impl AppView {
                 .flex_col()
                 .gap_2()
                 .max_w(px(720.))
-                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(fg).child("Device"))
-                .child(div().text_xs().text_color(muted).child("This profile is saved for the device you pick. ● marks devices that already have one."))
+                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(fg).child("设备"))
+                .child(div().text_xs().text_color(muted).child("配置会保存到你选择的设备。● 表示该设备已有配置。"))
                 .child(row)
                 .into_any_element()
         };
@@ -3736,7 +3563,7 @@ impl AppView {
             None => div()
                 .text_sm()
                 .text_color(muted)
-                .child("No device found. Connect a mouse and press Rescan on the Overview page.")
+                .child("未找到设备。请连接鼠标，并在「总览」页面按「重新扫描」。")
                 .into_any_element(),
             Some(tile) => match &tile.status {
                 TileStatus::Connected(r) => {
@@ -3759,7 +3586,7 @@ impl AppView {
                     let has_options = r.dpi.is_some() || !r.polling_rates.is_empty() || !r.lod_options.is_empty() || r.surface.is_some();
                     if !has_options {
                         col = col.child(div().text_sm().text_color(muted).child(
-                            "This device has no settings a game profile can change.",
+                            "此设备没有可由游戏配置更改的设置。",
                         ));
                     }
 
@@ -3768,7 +3595,7 @@ impl AppView {
                             let (gid, dev) = (id.clone(), device.clone());
                             let mut row = h_flex().gap_2().flex_wrap().child(self.chip(
                                 "pf-dpi-none".into(),
-                                "Unchanged".into(),
+                                "保持不变".into(),
                                 profile.dpi.is_none(),
                                 cx,
                                 move |this, cx| this.edit_profile(&gid, &dev, |p| p.dpi = None, cx),
@@ -3783,14 +3610,14 @@ impl AppView {
                                     move |this, cx| this.edit_profile(&gid, &dev, |p| p.dpi = Some(preset), cx),
                                 ));
                             }
-                            col = col.child(section("Sensitivity (DPI)", "Set when the profile applies.").child(row));
+                            col = col.child(section("灵敏度 (DPI)", "配置生效时设置。").child(row));
                         }
                     }
                     if !r.polling_rates.is_empty() {
                         let (gid, dev) = (id.clone(), device.clone());
                         let mut row = h_flex().gap_2().flex_wrap().child(self.chip(
                             "pf-poll-none".into(),
-                            "Unchanged".into(),
+                            "保持不变".into(),
                             profile.polling.is_none(),
                             cx,
                             move |this, cx| this.edit_profile(&gid, &dev, |p| p.polling = None, cx),
@@ -3805,13 +3632,13 @@ impl AppView {
                                 move |this, cx| this.edit_profile(&gid, &dev, |p| p.polling = Some(rate), cx),
                             ));
                         }
-                        col = col.child(section("Polling rate", "Leave on Unchanged to keep the mouse's rate.").child(row));
+                        col = col.child(section("回报率", "保持「保持不变」则沿用鼠标当前回报率。").child(row));
                     }
                     if !r.lod_options.is_empty() {
                         let (gid, dev) = (id.clone(), device.clone());
                         let mut row = h_flex().gap_2().flex_wrap().child(self.chip(
                             "pf-lod-none".into(),
-                            "Unchanged".into(),
+                            "保持不变".into(),
                             profile.lod.is_none(),
                             cx,
                             move |this, cx| this.edit_profile(&gid, &dev, |p| p.lod = None, cx),
@@ -3820,19 +3647,19 @@ impl AppView {
                             let (gid, dev, picked) = (id.clone(), device.clone(), option.clone());
                             row = row.child(self.chip(
                                 format!("pf-lod-{option}"),
-                                option.clone(),
+                                zh_state(&option),
                                 profile.lod.as_deref() == Some(option.as_str()),
                                 cx,
                                 move |this, cx| this.edit_profile(&gid, &dev, |p| p.lod = Some(picked.clone()), cx),
                             ));
                         }
-                        col = col.child(section("Lift-off distance", "").child(row));
+                        col = col.child(section("抬起高度", "").child(row));
                     }
                     if let (Some(_), Some(c)) = (&r.surface, &r.controls) {
                         let (gid, dev) = (id.clone(), device.clone());
                         let mut row = h_flex().gap_2().flex_wrap().child(self.chip(
                             "pf-surface-none".into(),
-                            "Unchanged".into(),
+                            "保持不变".into(),
                             profile.surface.is_none(),
                             cx,
                             move |this, cx| this.edit_profile(&gid, &dev, |p| p.surface = None, cx),
@@ -3841,13 +3668,13 @@ impl AppView {
                             let (gid, dev, picked) = (id.clone(), device.clone(), mode.clone());
                             row = row.child(self.chip(
                                 format!("pf-surface-{mode}"),
-                                mode.clone(),
+                                zh_state(&mode),
                                 profile.surface.as_deref() == Some(mode.as_str()),
                                 cx,
                                 move |this, cx| this.edit_profile(&gid, &dev, |p| p.surface = Some(picked.clone()), cx),
                             ));
                         }
-                        col = col.child(section("Gaming surface mode", "").child(row));
+                        col = col.child(section("游戏表面模式", "").child(row));
                     }
 
                     if has_options {
@@ -3869,8 +3696,8 @@ impl AppView {
                                             .flex()
                                             .flex_col()
                                             .gap_0p5()
-                                            .child(div().text_sm().text_color(fg).child("Apply when the game launches"))
-                                            .child(div().text_xs().text_color(muted).child("Your previous settings come back when the game closes.")),
+                                            .child(div().text_sm().text_color(fg).child("游戏启动时应用"))
+                                            .child(div().text_xs().text_color(muted).child("游戏关闭后会恢复之前的设置。")),
                                     )
                                     .child(
                                         Switch::new("profile-auto")
@@ -3885,16 +3712,16 @@ impl AppView {
                                 h_flex()
                                     .gap_2()
                                     .child(
-                                        Button::new("profile-apply").label("Apply now").on_click(cx.listener(move |this, _, _, cx| {
+                                        Button::new("profile-apply").label("立即应用").on_click(cx.listener(move |this, _, _, cx| {
                                             if applying.is_meaningful() {
                                                 this.apply_profile(&gid_apply, &dev_apply, applying.clone(), false, cx);
                                             } else {
-                                                this.show_toast("This profile doesn't change anything yet.", true, cx);
+                                                this.show_toast("此配置尚未更改任何设置。", true, cx);
                                             }
                                         })),
                                     )
                                     .child(
-                                        Button::new("profile-clear").ghost().label("Clear profile").on_click(cx.listener(move |this, _, _, cx| {
+                                        Button::new("profile-clear").ghost().label("清除配置").on_click(cx.listener(move |this, _, _, cx| {
                                             this.profiles.clear(&gid_clear, &dev_clear);
                                             this.profiles.save();
                                             cx.notify();
@@ -3907,9 +3734,9 @@ impl AppView {
                 TileStatus::Failed(error) => div()
                     .text_sm()
                     .text_color(cx.theme().danger)
-                    .child(format!("Could not read this device: {error}"))
+                    .child(format!("无法读取此设备：{error}"))
                     .into_any_element(),
-                _ => div().text_sm().text_color(muted).child("Connecting…").into_any_element(),
+                _ => div().text_sm().text_color(muted).child("正在连接…").into_any_element(),
             },
         };
 
@@ -3967,11 +3794,11 @@ impl AppView {
         let fg = cx.theme().foreground;
         let muted = cx.theme().muted_foreground;
         let subtitle = {
-            let mut parts = vec![format!("{} installed", installed.len())];
+            let mut parts = vec![format!("已安装 {}", installed.len())];
             if running > 0 {
-                parts.push(format!("{running} running"));
+                parts.push(format!("{running} 个运行中"));
             }
-            parts.push(format!("{profiles} with a profile"));
+            parts.push(format!("{profiles} 个已配置"));
             parts.join(" · ")
         };
         div()
@@ -3987,11 +3814,11 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().text_xl().font_weight(FontWeight::SEMIBOLD).text_color(fg).child("Games"))
+                    .child(div().text_xl().font_weight(FontWeight::SEMIBOLD).text_color(fg).child("游戏"))
                     .child(div().text_sm().text_color(muted).child(subtitle)),
             )
-            .child(self.render_game_section(cx, "Installed & running", "Pick a game to give it its own mouse profile.", &installed, false))
-            .child(self.render_game_section(cx, "More games", "Not found on this PC. Profiles you set up still apply once they are installed.", &rest, true))
+            .child(self.render_game_section(cx, "已安装并运行", "选择一个游戏，为它单独设置鼠标配置。", &installed, false))
+            .child(self.render_game_section(cx, "更多游戏", "此电脑上未找到。安装后你设置的配置仍会生效。", &rest, true))
             .into_any_element()
     }
 
@@ -4130,11 +3957,11 @@ impl AppView {
                             .flex_wrap()
                             .gap_1()
                             .h(px(20.))
-                            .when(game.running, |row| row.child(accent_badge("Running", accent, fg)))
+                            .when(game.running, |row| row.child(accent_badge("运行中", accent, fg)))
                             .when(game.installed && !game.running, |row| {
-                                row.child(Tag::secondary().small().child("Installed"))
+                                row.child(Tag::secondary().small().child("已安装"))
                             })
-                            .when(has_profile, |row| row.child(accent_badge("Profile", accent, fg))),
+                            .when(has_profile, |row| row.child(accent_badge("配置", accent, fg))),
                     ),
             )
             .into_any_element()
@@ -4241,7 +4068,7 @@ impl AppView {
                         } else if switch_id == "overlay-switch" {
                             this.settings.overlay_enabled = *enabled;
                             if *enabled {
-                                this.announce("Game notifications are on.".into(), false, true, cx);
+                                this.announce("游戏通知已开启。".into(), false, true, cx);
                             } else if let Some(open) = this.overlay.take() {
                                 let _ = open.update(cx, |_, window, _| window.remove_window());
                             }
@@ -4286,20 +4113,20 @@ impl AppView {
                                 div()
                                     .text_xl()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Settings"),
+                                    .child("设置"),
                             )
                             .child(
                                 div()
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child("Appearance and app preferences"),
+                                    .child("外观与应用偏好"),
                             ),
                     )
                     .child(
                         self.render_settings_section(
                             cx,
-                            "Appearance",
-                            "Choose a theme and adjust the window backdrop.",
+                            "外观",
+                            "选择主题并调整窗口背景。",
                         )
                         .child(
                             RadioGroup::horizontal("theme-choice")
@@ -4307,17 +4134,17 @@ impl AppView {
                                     let description = match choice {
                                         ThemeChoice::System => {
                                             if cfg!(target_os = "macos") {
-                                                "Follow macOS"
+                                                "跟随 macOS"
                                             } else if cfg!(target_os = "windows") {
-                                                "Follow Windows"
+                                                "跟随 Windows"
                                             } else {
-                                                "Follow system"
+                                                "跟随系统"
                                             }
                                         }
-                                        ThemeChoice::Dark => "Warm, muted",
-                                        ThemeChoice::Oled => "True black",
-                                        ThemeChoice::Light => "Bright, clear",
-                                        ThemeChoice::Dynamic => "From wallpaper",
+                                        ThemeChoice::Dark => "暖色柔和",
+                                        ThemeChoice::Oled => "纯黑",
+                                        ThemeChoice::Light => "明亮通透",
+                                        ThemeChoice::Dynamic => "取自壁纸",
                                     };
                                     Radio::new(choice.label())
                                         .label(choice.label())
@@ -4358,13 +4185,13 @@ impl AppView {
                                     div()
                                         .text_sm()
                                         .font_weight(FontWeight::MEDIUM)
-                                        .child("Accent color"),
+                                        .child("强调色"),
                                 )
                                 .child(
                                     div()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child("Override the theme's accent, or reset to use the theme's own."),
+                                        .child("覆盖主题的强调色，或重置为主题默认。"),
                                 )
                                 .child(
                                     h_flex()
@@ -4375,7 +4202,7 @@ impl AppView {
                                             row.child(
                                                 Button::new("accent-reset")
                                                     .compact()
-                                                    .label("Reset")
+                                                    .label("重置")
                                                     .on_click(cx.listener(|this, _, window, cx| {
                                                         this.set_accent(None, window, cx);
                                                     })),
@@ -4385,8 +4212,8 @@ impl AppView {
                         )
                         .child(div().h(px(1.)).w_full().bg(cx.theme().border))
                         .child(self.render_effect_slider(
-                            "Background opacity",
-                            "Lower the tint to reveal more of the desktop behind the window.",
+                            "背景不透明度",
+                            "降低着色度可透出更多桌面。",
                             &self.opacity_slider,
                             format!("{:.0}%", self.settings.window_opacity),
                             cx,
@@ -4403,12 +4230,12 @@ impl AppView {
                                         .flex_1()
                                         .min_w_0()
                                         .gap_1()
-                                        .child(div().text_sm().child("Background blur"))
+                                        .child(div().text_sm().child("背景模糊"))
                                         .child(
                                             div()
                                                 .text_xs()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child("Soften the desktop behind the window. macOS controls blur strength."),
+                                                .child("柔化窗口后的桌面。macOS 上模糊强度由系统控制。"),
                                         ),
                                 )
                                 .child(
@@ -4428,8 +4255,8 @@ impl AppView {
                         )
                         .when(show_vibrancy, |this| {
                             this.child(self.render_effect_slider(
-                                "Vibrancy",
-                                "Adjust the intensity of your wallpaper-derived colors.",
+                                "色彩通透",
+                                "调整壁纸取色的强度。",
                                 &self.vibrancy_slider,
                                 format!("{:.0}%", self.settings.dynamic_vibrancy),
                                 cx,
@@ -4439,13 +4266,13 @@ impl AppView {
                     .child(
                         self.render_settings_section(
                             cx,
-                            "General",
-                            "Startup and integration preferences.",
+                            "通用",
+                            "启动与集成偏好。",
                         )
                         .child(self.render_switch_row(
                             "startup-switch",
-                            "Launch on startup",
-                            "Open OpenMouse automatically when you log in.",
+                            "开机启动",
+                            "登录时自动打开 OpenMouse。",
                             self.settings.launch_on_startup,
                             cx,
                         ))
@@ -4453,7 +4280,7 @@ impl AppView {
                         .child(self.render_switch_row(
                             "discord-switch",
                             "Discord Rich Presence",
-                            "Show OpenMouse in your Discord status. Requires Discord to be running.",
+                            "在 Discord 状态中显示 OpenMouse。需要 Discord 正在运行。",
                             self.settings.discord_presence,
                             cx,
                         ))
@@ -4461,25 +4288,25 @@ impl AppView {
                             let (details, state) = self.presence_text();
                             section
                                 .child(div().h(px(1.)).w_full().bg(cx.theme().border))
-                                .child(div().text_sm().font_weight(FontWeight::MEDIUM).text_color(cx.theme().foreground).child("What to show"))
+                                .child(div().text_sm().font_weight(FontWeight::MEDIUM).text_color(cx.theme().foreground).child("显示内容"))
                                 .child(self.render_switch_row(
                                     "discord-device",
-                                    "Connected mouse",
-                                    "Your mouse's name, e.g. PRO X SUPERLIGHT 2c.",
+                                    "已连接的鼠标",
+                                    "鼠标名称，例如 PRO X SUPERLIGHT 2c。",
                                     self.settings.discord_show_device,
                                     cx,
                                 ))
                                 .child(self.render_switch_row(
                                     "discord-game",
-                                    "Current game",
-                                    "\"Playing …\" while a game from your library is running.",
+                                    "当前游戏",
+                                    "库中游戏运行时显示「Playing …」。",
                                     self.settings.discord_show_game,
                                     cx,
                                 ))
                                 .child(self.render_switch_row(
                                     "discord-stats",
-                                    "Live stats",
-                                    "Your mouse's current DPI and polling rate.",
+                                    "实时数据",
+                                    "鼠标当前的 DPI 与回报率。",
                                     self.settings.discord_show_stats,
                                     cx,
                                 ))
@@ -4492,7 +4319,7 @@ impl AppView {
                                         .rounded_md()
                                         .border_1()
                                         .border_color(cx.theme().border)
-                                        .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Your status will read"))
+                                        .child(div().text_xs().text_color(cx.theme().muted_foreground).child("你的状态将显示为"))
                                         .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(cx.theme().foreground).child("OpenMouse Desktop"))
                                         .child(div().text_sm().text_color(cx.theme().foreground).child(details))
                                         .children((!state.is_empty()).then(|| div().text_sm().text_color(cx.theme().foreground).child(state))),
@@ -4502,21 +4329,21 @@ impl AppView {
                     .child(
                         self.render_settings_section(
                             cx,
-                            "Devices",
-                            "How changes reach your mouse.",
+                            "设备",
+                            "更改如何写入鼠标。",
                         )
                         .child(self.render_switch_row(
                             "instant-apply-switch",
-                            "Apply changes instantly",
-                            "On: every change is written to the mouse as you make it. Off: changes are held until you press Apply Changes in the bar at the bottom.",
+                            "立即应用更改",
+                            "开：每次更改立刻写入鼠标。关：更改会暂存，直到点击底部栏的「应用更改」。",
                             self.settings.instant_apply,
                             cx,
                         ))
                         .child(div().h(px(1.)).w_full().bg(cx.theme().border))
                         .child(self.render_switch_row(
                             "overlay-switch",
-                            "Game notifications",
-                            "Show a message on screen when a game with a profile launches or closes. Appears over the game without taking focus.",
+                            "游戏通知",
+                            "带配置的游戏启动或关闭时在屏幕上显示提示。提示浮于游戏之上，且不会抢占焦点。",
                             self.settings.overlay_enabled,
                             cx,
                         ))
@@ -4525,8 +4352,8 @@ impl AppView {
                                 .child(div().h(px(1.)).w_full().bg(cx.theme().border))
                                 .child(self.render_switch_row(
                                     "overlay-sound",
-                                    "Play a sound",
-                                    "A short, quiet chime with each game notification.",
+                                    "播放提示音",
+                                    "每次游戏通知时播放一段轻柔的提示音。",
                                     self.settings.overlay_sound,
                                     cx,
                                 ))
@@ -4536,9 +4363,9 @@ impl AppView {
                                     .flex_col()
                                     .gap_2()
                                     .py_1()
-                                    .child(div().text_sm().font_weight(FontWeight::MEDIUM).text_color(cx.theme().foreground).child("Notification position"))
+                                    .child(div().text_sm().font_weight(FontWeight::MEDIUM).text_color(cx.theme().foreground).child("通知位置"))
                                     .child(div().text_xs().text_color(cx.theme().muted_foreground).child(
-                                        "Which corner of the screen the message appears in.",
+                                        "提示出现在屏幕的哪个角落。",
                                     ))
                                     .child({
                                         let mut row = h_flex().gap_2().flex_wrap();
@@ -4552,7 +4379,7 @@ impl AppView {
                                                     this.settings.overlay_corner = corner;
                                                     this.settings.save();
                                                     // Show it where it will appear.
-                                                    this.announce("Notifications will appear here.".into(), false, true, cx);
+                                                    this.announce("通知将在此处预览。".into(), false, true, cx);
                                                 },
                                             ));
                                         }
@@ -4614,76 +4441,9 @@ impl AppView {
 }
 
 /// Colours a list row needs, copied into the list's `'static` render closure.
-#[derive(Clone, Copy)]
-struct PageColors {
-    fg: Hsla,
-    muted: Hsla,
-    accent: Hsla,
-    border: Hsla,
-}
-
-/// One release on the Updates page, as a card; the running version is tinted.
-/// The list is virtualized, so only the rows in view are ever laid out.
-fn release_row(entry: &crate::changelog::Entry, current: bool, c: PageColors) -> AnyElement {
-    use crate::changelog::{display_date, grouped, Kind};
-    let mut changes = div().flex().flex_col().gap_4().flex_1().min_w_0();
-    for (kind, lines) in grouped(entry) {
-        let (label, tone) = match kind {
-            Some(Kind::New) => ("New", c.accent),
-            Some(Kind::Improved) => ("Improved", c.accent),
-            Some(Kind::Fixed) => ("Fixed", c.muted),
-            None => ("Changes", c.muted),
-        };
-        // The badge's dot and fill take the tone; its text stays readable.
-        let mut group = div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(div().flex().child(accent_badge(label, tone, c.fg)));
-        for line in lines {
-            group = group.child(
-                h_flex()
-                    .gap_3()
-                    .items_start()
-                    .child(div().mt(px(7.)).size(px(5.)).flex_none().rounded_full().bg(Hsla { a: 0.7, ..tone }))
-                    .child(div().flex_1().min_w_0().text_sm().line_height(relative(1.5)).text_color(c.fg).child(line.to_string())),
-            );
-        }
-        changes = changes.child(group);
-    }
-    h_flex()
-        .gap_8()
-        .items_start()
-        .p_5()
-        .rounded_xl()
-        .border_1()
-        .border_color(if current { Hsla { a: 0.5, ..c.accent } } else { c.border })
-        .bg(if current { Hsla { a: 0.05, ..c.accent } } else { Hsla { a: 0.03, ..c.fg } })
-        .child(
-            div()
-                .w(px(132.))
-                .flex_none()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(if current { c.accent } else { c.fg })
-                        .child(format!("v{}", entry.version)),
-                )
-                .child(div().text_xs().text_color(c.muted).child(display_date(&entry.date)))
-                .children(current.then(|| div().text_xs().font_weight(FontWeight::MEDIUM).text_color(c.accent).child("Current"))),
-        )
-        .child(changes)
-        .into_any_element()
-}
-
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_control_sliders(window, cx);
-        let pages = [Page::Overview, Page::Games, Page::Supported];
         // Kit's Root paints the translucent semantic background once.
         // Keep the app shell clear so overlapping layers do not compound alpha.
         let clear = Hsla {

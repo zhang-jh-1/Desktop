@@ -22,6 +22,8 @@ sysinfo = { version = "0.39.6", default-features = false, features = ["system"] 
 futures = "0.3.34"
 futures-timer = "3.0.4"
 openmouse-hid = { version = "0.0.1", path = "../crates/openmouse-hid" }
+openmouse-mouse = { version = "0.0.1", path = "../crates/openmouse-mouse" }
+openmouse-keyboard = { version = "0.0.1", path = "../crates/openmouse-keyboard" }
 rquickjs = { version = "0.14", features = ["futures"] }
 openmouse-presence = { version = "0.0.1", path = "../crates/openmouse-presence" }
 [target.'cfg(target_os = "macos")'.dependencies]

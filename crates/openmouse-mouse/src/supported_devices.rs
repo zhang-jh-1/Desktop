@@ -29,7 +29,7 @@ pub fn requested_path() -> Option<std::path::PathBuf> {
 /// Lists the devices and writes them to `path`. Writes `[]` if the device
 /// runtime cannot be reached, so a caller always finds a readable file.
 pub fn write(path: &std::path::Path) {
-    let service = crate::hid::HidService::start();
+    let service = crate::HidService::start();
     let entries: Vec<Entry> = match futures::executor::block_on(service.list_candidates()) {
         Ok(Ok(candidates)) => candidates
             .into_iter()

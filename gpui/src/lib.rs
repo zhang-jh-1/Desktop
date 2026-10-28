@@ -1,20 +1,20 @@
 pub mod activity;
 pub mod app;
 pub mod audio;
-pub mod changelog;
 pub mod autostart;
 mod game_watcher;
 pub mod games;
-pub mod hid;
+/// 鼠标：独立 crate `openmouse-mouse`（原 `gpui/src/hid.rs`）。
+pub use openmouse_mouse as hid;
 pub mod native_window;
 pub mod overlay;
 pub mod presence_text;
-pub mod proc;
 pub mod tray;
 pub mod profiles;
 pub mod settings;
-pub mod supported_devices;
 pub mod theme;
-pub mod update_check;
+/// 键盘：独立 crate `openmouse-keyboard`。
+pub use openmouse_keyboard;
+
 #[cfg(windows)]
 mod wallpaper_win;

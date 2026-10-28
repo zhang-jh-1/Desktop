@@ -30,6 +30,300 @@ export function setPrefs(prefs: { linkLeftRight?: boolean | null }) {
 
 const opts = (values: readonly (string | number)[]): Option[] => values.map((v) => ({ value: v, label: String(v) }));
 
+/**
+ * 界面文案的中英映射。未收录的条目原样返回，所以驱动新增文案不会因此出错。
+ * 只翻译显示用的 title / label / description / options[].label / zeroLabel，
+ * 不翻译 current：choice 与 stepped 的 current 既是提交值也是选中态判断依据。
+ */
+const ZH: Record<string, string> = {
+  // ── 通用 / 分组标题 ──
+  "More settings": "更多设置",
+  "Buttons": "按键",
+  "Profiles": "配置",
+  "Active profile": "当前配置",
+  "Pairing": "配对",
+  "Switch": "开关",
+  "Basic": "基础",
+  "Normal": "标准",
+  "Off": "关闭",
+  "On": "开启",
+  "Default": "默认",
+  "Disabled": "已禁用",
+  "Enabled": "已启用",
+  "Stop": "停止",
+  "Start pairing": "开始配对",
+  "Early": "提前",
+  "Late": "延后",
+  "Optical": "光学",
+  "Mechanical": "机械",
+  "Magnetic": "磁微动",
+  "Device info": "设备信息",
+  "Battery": "电量",
+  "Battery status": "电量状态",
+  "Battery indicator": "电量指示",
+  "Battery warning": "低电量提醒",
+  "Low battery": "低电量",
+  "Dongle": "接收器",
+  "Dongle LED": "接收器指示灯",
+  "Dongle light": "接收器指示灯",
+  "Receiver": "接收器",
+  "Receiver LED": "接收器指示灯",
+  "Receiver light": "接收器指示灯",
+  "Receiver ID": "接收器 ID",
+  "Receiver firmware": "接收器固件",
+  "Omni receiver": "全能接收器",
+
+  // ── 性能 / 传感器 ──
+  "Polling rate": "回报率",
+  "Button polling rate": "按键回报率",
+  "Connection & polling rate": "连接与回报率",
+  "DPI stages": "DPI 档位",
+  "DPI acceleration": "DPI 加速",
+  "DPI indicator effect": "DPI 指示灯效果",
+  "DPI light sleep": "DPI 指示灯休眠",
+  "CPI levels": "CPI 档位",
+  "Separate DPI axes": "独立 DPI 轴",
+  "Sensor mode": "传感器模式",
+  "Sensor scanning": "传感器扫描",
+  "Motion sync": "运动同步",
+  "Motion-jitter filter": "运动抖动过滤",
+  "Angle snapping": "角度吸附",
+  "Angle tuning": "角度微调",
+  "Acceleration curve": "加速曲线",
+  "Ripple control": "纹波控制",
+  "Wheel acceleration": "滚轮加速",
+  "Wheel guard": "滚轮防护",
+  "Wheel guard window": "滚轮防护窗口",
+  "Wheel mode": "滚轮模式",
+  "Glass mode": "玻璃模式",
+  "PAW lift-off": "PAW 抬起高度",
+  "Slamclick filter": "防撞点击过滤",
+  "Slam-Click": "Slam-Click",
+  "HyperClick": "HyperClick",
+  "Hyper mode": "极速模式",
+  "Turbo mode": "加速模式",
+  "Power mode": "电源模式",
+  "Low power mode": "低功耗模式",
+  "Performance / hyper mode": "性能 / 极速模式",
+  "Performance duration": "性能持续时间",
+  "USB speed": "USB 速度",
+  "Long-range mode": "远距离模式",
+  "Debounce": "去抖时间",
+  "Sleep timeout": "休眠时间",
+  "8K polling divider": "8K 回报率分频",
+  "Perfect Polling": "Perfect Polling",
+
+  // ── 按键 / 触感 ──
+  "Actuation point": "触发行程",
+  "Release point": "释放行程",
+  "Trigger point": "触发点",
+  "Rapid trigger": "快速触发",
+  "Rapid trigger sensitivity": "快速触发灵敏度",
+  "Lightning trigger": "闪电触发",
+  "Hall-effect buttons": "霍尔效应按键",
+  "Lightforce switches": "Lightforce 微动",
+  "LightForce switch mode": "LightForce 微动模式",
+  "TMR analog": "TMR 模拟",
+  "Anti-mistouch": "防误触",
+  "Click haptics": "点击触感",
+  "Haptic feedback": "触感反馈",
+  "Haptic strength": "触感强度",
+  "Haptics battery saving": "触感省电",
+  "Primary button": "主按键",
+  "Bottom button": "底部按键",
+  "Fire key": "开火键",
+  "Button combinations": "按键组合",
+  "Clicks per press": "每次按下点击数",
+  "Interval": "间隔",
+  "Scroll wheel": "滚轮",
+  "Scroll direction": "滚动方向",
+  "Invert scroll direction": "反转滚动方向",
+  "Invert thumb wheel": "反转侧滚轮",
+  "Tournament scroll": "比赛模式滚动",
+  "Passthrough window": "透传窗口",
+  "High-resolution scrolling": "高精度滚动",
+  "SmartShift sensitivity": "SmartShift 灵敏度",
+  "System mode": "系统模式",
+  "Optical Engine": "光学引擎",
+  "Calibration reference": "校准参考",
+  "Separate DPI axes ": "独立 DPI 轴",
+
+  // ── 说明文字 ──
+  "Choose what this button sends.": "选择此按键发送的动作。",
+  "Change both buttons together.": "同时更改两个按键。",
+  "Milliseconds.": "毫秒。",
+  "Milliseconds between clicks.": "两次点击之间的毫秒数。",
+  "Higher means a deeper press.": "数值越大，按下行程越深。",
+  "How far the button travels before it clicks. Lower is lighter.": "按键触发前的行程。数值越小手感越轻。",
+  "How far the button travels back before it releases.": "按键回弹多远后释放。",
+  "How far the button must lift to reset. Off at 0.": "按键抬起多高后重置。0 表示关闭。",
+  "Re-clicks the moment the button moves back up.": "按键回弹的瞬间立即重新触发。",
+  "How long the mouse stays awake when idle before sleeping.": "鼠标空闲多久后进入休眠。",
+  "Slows the mouse down to save battery below this level.": "电量低于此值时降低性能以省电。",
+  "Synchronizes X/Y sensor sampling for smoother diagonals.": "同步 X/Y 轴采样，让对角线移动更平滑。",
+  "Filters sensor ripple at high polling rates for more stable tracking.": "在高回报率下过滤传感器抖动，让追踪更稳定。",
+  "Pins the sensor to its highest frame rate.": "将传感器固定在最高帧率。",
+  "Runs the sensor at its full performance setting.": "让传感器以满性能运行。",
+  "Runs the sensor at its highest performance setting.": "让传感器以最高性能运行。",
+  "Rounds movement to straight lines and diagonals for a steadier cursor.": "将移动吸附到直线与对角线，让光标更稳定。",
+  "Rotates the sensor to correct for how you hold the mouse. 0° is off.": "旋转传感器以校正握持角度。0° 表示关闭。",
+  "Tracking tuned for glass surfaces.": "针对玻璃表面优化的追踪。",
+  "Trades battery for link range on receivers that offer it.": "在支持的接收器上，以续航换取连接距离。",
+  "Trades battery life against performance.": "在续航与性能之间取舍。",
+  "Full pins polling to 1000 Hz; High enables faster rates.": "全速将回报率锁定在 1000 Hz；High 可启用更高回报率。",
+  "Free-spinning or ratcheted, as the button behind the wheel toggles.": "自由滚动或分段滚动，由滚轮后方的按键切换。",
+  "How gentle a flick releases the ratchet. 255 turns SmartShift off.": "多轻的拨动即可释放棘轮。255 表示关闭 SmartShift。",
+  "Hybrid uses an optical and a mechanical stage; Optical is purely optical.": "混合模式使用光学加机械两级；光学模式为纯光学触发。",
+  "Ignored-click window in ms; 0 is off.": "忽略点击的时间窗（毫秒）；0 表示关闭。",
+  "Seconds before the DPI indicator turns off, separate from mouse sleep.": "DPI 指示灯熄灭前的秒数，与鼠标休眠独立。",
+  "On-device sensitivity stages; pick the active one.": "设备内置的灵敏度档位；选择当前生效的一档。",
+  "Open the receiver for a new device.": "打开接收器以连接新设备。",
+  "The receiver's status light.": "接收器的状态指示灯。",
+  "What the 2.4 GHz receiver's light shows.": "2.4 GHz 接收器指示灯的显示内容。",
+  "Switches the mouse's stored profile.": "切换鼠标的板载配置。",
+  "Lets button chords change mouse settings without the driver.": "让按键组合在没有驱动时也能更改鼠标设置。",
+  "Which button acts as the primary click.": "哪个按键作为主点击。",
+  "Strength of this button's click feedback.": "此按键点击反馈的强度。",
+  "Magnetic needs a calibrated mouse.": "磁微动需要先校准鼠标。",
+  "Can only be changed with the mouse on its cable.": "仅在鼠标插线时可更改。",
+  "Needs mouse firmware 57 or later.": "需要鼠标固件 57 或更高版本。",
+  "Set up with a macro or custom binding — not editable here.": "已通过宏或自定义绑定设置 — 此处不可编辑。",
+  "Solid white": "常亮白色",
+  "Battery indicator effect": "电量指示效果",
+
+  // ── 分组标题（品牌前缀保留）──
+  "Razer — Buttons": "Razer — 按键",
+  "Razer — Scroll & toggles": "Razer — 滚轮与开关",
+  "Endgame Gear — Buttons": "Endgame Gear — 按键",
+  "Endgame Gear — Debounce": "Endgame Gear — 去抖",
+  "GX switch — left button": "GX 微动 — 左键",
+  "GX switch — right button": "GX 微动 — 右键",
+  "Starlight X · Lift-off": "Starlight X · 抬起高度",
+
+  // ── 按键映射选项 ──
+  "Left Click": "左键单击",
+  "Left click": "左键单击",
+  "Right Click": "右键单击",
+  "Right click": "右键单击",
+  "Middle Click": "中键单击",
+  "Middle click": "中键单击",
+  "Left button": "左键",
+  "Right button": "右键",
+  "Middle button": "中键",
+  "Back": "后退",
+  "Back button": "后退键",
+  "Backward": "后退",
+  "Forward": "前进",
+  "Forward button": "前进键",
+  "Scroll Up": "向上滚动",
+  "Scroll Up ": "向上滚动",
+  "Scroll up": "向上滚动",
+  "Scroll Down": "向下滚动",
+  "Scroll down": "向下滚动",
+  "Wheel Up": "滚轮上滚",
+  "Wheel Down": "滚轮下滚",
+  "Volume Up": "音量 +",
+  "Volume +": "音量 +",
+  "Volume Down": "音量 -",
+  "Volume −": "音量 -",
+  "Mute": "静音",
+  "Play / Pause": "播放 / 暂停",
+  "Play/Pause": "播放/暂停",
+  "Next Track": "下一曲",
+  "Next track": "下一曲",
+  "Previous Track": "上一曲",
+  "Prev track": "上一曲",
+  "Browser Home": "浏览器主页",
+  "File Explorer": "文件资源管理器",
+  "Keyboard shortcut": "键盘快捷键",
+  "Sensitivity Button": "灵敏度按键",
+  "CPI Loop": "CPI 循环",
+  "DPI loop": "DPI 循环",
+  "Fixed CPI": "固定 CPI",
+  "gaming surface mode": "游戏表面模式",
+
+  // ── 设备信息 / 状态 ──
+  "Unit ID": "设备 ID",
+  "Model ID": "型号 ID",
+  "Device name": "设备名称",
+  "Connection": "连接方式",
+  "Transports": "传输方式",
+  "Signal strength": "信号强度",
+  "Battery voltage": "电池电压",
+  "Easy-Switch": "Easy-Switch",
+  "Layer": "图层",
+  "Wireless": "无线",
+  "Wired": "有线",
+  "Connected": "已连接",
+  "Not connected": "未连接",
+  "Full": "满电",
+  "Steady": "常亮",
+  "Always on": "常亮",
+  "Breathing": "呼吸",
+  "Burst": "连发",
+  "Both buttons": "双键",
+  "Both directions": "双向",
+  "Hall-effect · Both buttons": "霍尔效应 · 双键",
+  "Freespin": "自由滚动",
+  "Ratchet": "分段滚动",
+  "Reverse": "反向",
+  "Standard": "标准",
+  "Hybrid": "混合",
+  "Switches": "微动",
+  "Haptics": "触感",
+  "GX Safe": "GX 安全",
+  "GX Speed": "GX 速度",
+  "Never": "从不",
+  "Left": "左",
+  "Right": "右",
+  "High": "高",
+  "Medium": "中",
+  "Low": "低",
+  "Link left & right": "左右键联动",
+  "Left button latency": "左键延迟",
+  "Right button latency": "右键延迟",
+  "Middle button latency": "中键延迟",
+
+  // ── 补充说明 ──
+  "This device has no lighting controls.": "此设备没有灯效控制项。",
+  "This mouse's button settings aren't loaded yet.": "此鼠标的按键设置尚未加载。",
+  "HIGH is the default frame rate; ACCEL pins the sensor to high performance at a battery cost.":
+    "HIGH 为默认帧率；ACCEL 会以更耗电为代价把传感器锁定在最高性能。",
+  "Write-only on this mouse: the value shown is the last one set, not read back from the dongle.":
+    "此鼠标只支持写入：显示的是上次设置的值，并非从接收器读回。",
+};
+
+/** 带数字的动态文案，如 `16 ms`、`1 second`、`Device 2`。 */
+function zhDynamic(s: string): string {
+  return s
+    .replace(/^(\d+(?:\.\d+)?) ms$/, "$1 毫秒")
+    .replace(/^(\d+(?:\.\d+)?) seconds?$/, "$1 秒")
+    .replace(/^(\d+(?:\.\d+)?) minutes?$/, "$1 分钟")
+    .replace(/^Device (\d+)$/, "设备 $1");
+}
+
+const zh = (s: string): string => ZH[s] ?? zhDynamic(s);
+
+/** 只改显示文案，value / id / current 一律原样保留。 */
+function localizeSection(sec: Section): Section {
+  return {
+    title: zh(sec.title),
+    controls: (sec.controls ?? []).map((c) => {
+      const out: any = { ...c, label: zh(c.label) };
+      if (typeof c.description === "string") out.description = zh(c.description);
+      const anyC = c as any;
+      if (Array.isArray(anyC.options)) {
+        out.options = anyC.options.map((o: Option) => ({ ...o, label: zh(String(o.label)) }));
+      }
+      if (typeof anyC.zeroLabel === "string") out.zeroLabel = zh(anyC.zeroLabel);
+      // info 的 current 只用于显示，可以翻译；其余是提交值，不能动。
+      if (c.kind === "info" && typeof anyC.current === "string") out.current = zh(anyC.current);
+      return out as Control;
+    }),
+  };
+}
+
+
 function razerAndEgg(brand: string, s: any): Section[] {
   const out: Section[] = [];
   const isRazer = brand === "Razer" && Boolean(s.razerButtonMappings);
@@ -720,9 +1014,9 @@ function performanceExtras(brand: string, status: any, caps: DeviceCapabilities)
 
 export function describeControls(brand: string, status: any, caps: DeviceCapabilities) {
   return {
-    buttons: [...razerAndEgg(brand, status), ...genericButtons(status)],
-    advanced: [...advanced(status, brand), ...hits(status, brand), ...magneticControls(status), ...extras(status), ...genericFeatures(status), ...deviceInfo(status)],
-    performance: performanceExtras(brand, status, caps),
+    buttons: [...razerAndEgg(brand, status), ...genericButtons(status)].map(localizeSection),
+    advanced: [...advanced(status, brand), ...hits(status, brand), ...magneticControls(status), ...extras(status), ...genericFeatures(status), ...deviceInfo(status)].map(localizeSection),
+    performance: performanceExtras(brand, status, caps).map(localizeSection),
     lighting: status.lighting ?? null,
   };
 }

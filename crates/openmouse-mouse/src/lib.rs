@@ -1,4 +1,8 @@
-//! Device support for the GPUI app.
+//! Mouse support: device discovery plus the QuickJS host that runs
+//! `@openmouse/protocol`.
+//!
+//! 这是**鼠标自己的包**。键盘在 `openmouse-keyboard`，两者互不引用，
+//! 只在传输层共用 `openmouse-hid`。
 //!
 //! The mouse protocols live in `@openmouse/protocol` (TypeScript, shared with
 //! the web app), so they are not ported: `js/build.mjs` bundles that package
@@ -26,7 +30,9 @@ use rquickjs::{AsyncContext, AsyncRuntime, Ctx, Exception, Function, Object};
 use serde::Deserialize;
 use serde_json::Value;
 
-const BUNDLE: &str = include_str!("../js/dist/bundle.js");
+pub mod supported_devices;
+
+const BUNDLE: &str = include_str!("../../../gpui/js/dist/bundle.js");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Interface {
@@ -137,7 +143,7 @@ impl DeviceArt {
             return local.is_file().then_some(local);
         }
         let tmp = dir.join(format!("{}.part", self.filename));
-        let ok = crate::proc::quiet(
+        let ok = openmouse_hid::proc::quiet(
             std::process::Command::new("curl")
                 .args(["-sSfL", "-m", "20", "-o"])
                 .arg(&tmp)

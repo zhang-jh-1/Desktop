@@ -193,7 +193,7 @@ mod other {
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null());
-            if crate::proc::quiet(&mut command).spawn().is_ok() {
+            if openmouse_hid::proc::quiet(&mut command).spawn().is_ok() {
                 return true;
             }
         }

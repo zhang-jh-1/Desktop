@@ -59,6 +59,8 @@
 //! (`HidApiHandle` below) and refreshed rather than recreated on every
 //! call — simpler and cheaper than a fresh instance per call, and (now that
 //! exclusive mode is off) has no bearing on the freeze either way.
+pub mod proc;
+
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

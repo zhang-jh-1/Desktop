@@ -28,12 +28,20 @@ fn main() {
 
     // openmouse-gpui.exe shipped with no icon/version resource at all until
     // now; reuses the same source art as the Tauri build's bundler.
+    //
+    // winres 会去查注册表找 Windows SDK 的资源编译器（reg.exe）。在没有
+    // reg.exe 的环境里（受限沙箱 / 某些 CI）这一步会直接失败并中断构建，
+    // 而图标只是个装饰，所以留一个跳过开关：设 OPENMOUSE_SKIP_ICON=1 即可。
     #[cfg(windows)]
     {
-        let mut res = winres::WindowsResource::new();
-        res.set_icon("assets/icon.ico");
-        if let Err(error) = res.compile() {
-            println!("cargo:warning=could not embed the app icon: {error}");
+        if std::env::var("OPENMOUSE_SKIP_ICON").is_ok() {
+            println!("cargo:warning=跳过图标资源（OPENMOUSE_SKIP_ICON 已设置）");
+        } else {
+            let mut res = winres::WindowsResource::new();
+            res.set_icon("assets/icon.ico");
+            if let Err(error) = res.compile() {
+                println!("cargo:warning=could not embed the app icon: {error}");
+            }
         }
     }
 }

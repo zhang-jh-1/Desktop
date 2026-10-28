@@ -115,7 +115,7 @@ mod imp {
         let Some(icon) = platform::icon() else {
             return false;
         };
-        let open = MenuItem::with_id("open", "Open OpenMouse", true, None);
+        let open = MenuItem::with_id("open", "打开 OpenMouse", true, None);
         let quit = MenuItem::with_id("quit", "Quit", true, None);
         let menu = Menu::new();
         if menu.append_items(&[&open, &PredefinedMenuItem::separator(), &quit]).is_err() {

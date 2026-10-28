@@ -4477,6 +4477,8 @@ dependencies = [
  "image",
  "objc",
  "openmouse-hid",
+ "openmouse-keyboard",
+ "openmouse-mouse",
  "openmouse-presence",
  "raw-window-handle",
  "rquickjs",
@@ -4495,6 +4497,28 @@ dependencies = [
  "hidapi",
  "parking_lot",
  "serde",
+]
+
+[[package]]
+name = "openmouse-keyboard"
+version = "0.0.1"
+dependencies = [
+ "hidapi",
+ "serde",
+]
+
+[[package]]
+name = "openmouse-mouse"
+version = "0.0.1"
+dependencies = [
+ "dirs 6.0.0",
+ "futures",
+ "futures-timer",
+ "image",
+ "openmouse-hid",
+ "rquickjs",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
